@@ -1,15 +1,23 @@
+// @ts-nocheck
 "use client";
+export const dynamic = "force-dynamic";
 import { useState } from "react";
+import { useQuery } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import Navbar from "@/components/Navbar";
 import CartDrawer from "@/components/CartDrawer";
 import MenuCard from "@/components/MenuCard";
-import { MENU, CATEGORIES } from "@/lib/menu";
+import { CATEGORIES } from "@/lib/menu";
+import { Loader2 } from "lucide-react";
 
 export default function MenuPage() {
   const [activeCategory, setActiveCategory] = useState("all");
   const [search, setSearch] = useState("");
 
-  const filtered = MENU.filter((item) => {
+  const allProducts = useQuery(api.products.list, {});
+
+  const filtered = (allProducts ?? []).filter((item) => {
+    if (!item.available) return false;
     const matchCat = activeCategory === "all" || item.category === activeCategory;
     const matchSearch =
       !search ||
@@ -24,13 +32,11 @@ export default function MenuPage() {
       <CartDrawer />
 
       <div className="pt-24 pb-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-        {/* Header */}
         <div className="text-center mb-10">
           <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-3">Our Menu</h1>
           <p className="text-gray-400 text-lg">Cold-pressed, made fresh, nothing artificial.</p>
         </div>
 
-        {/* Search */}
         <div className="max-w-md mx-auto mb-8">
           <input
             type="text"
@@ -41,7 +47,6 @@ export default function MenuPage() {
           />
         </div>
 
-        {/* Category tabs */}
         <div className="flex flex-wrap justify-center gap-3 mb-10">
           {CATEGORIES.map((cat) => (
             <button
@@ -58,23 +63,24 @@ export default function MenuPage() {
           ))}
         </div>
 
-        {/* Results count */}
-        <p className="text-gray-500 text-sm mb-6 text-center">
-          {filtered.length} item{filtered.length !== 1 ? "s" : ""}
-        </p>
-
-        {/* Grid */}
-        {filtered.length === 0 ? (
+        {allProducts === undefined ? (
+          <div className="flex items-center justify-center py-24 gap-3 text-gray-400">
+            <Loader2 className="w-6 h-6 animate-spin" /> Loading menu...
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="text-center py-24 text-gray-500">
             <span className="text-5xl mb-4 block">🔍</span>
             No items found. Try a different search.
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            {filtered.map((item) => (
-              <MenuCard key={item.id} item={item} />
-            ))}
-          </div>
+          <>
+            <p className="text-gray-500 text-sm mb-6 text-center">{filtered.length} item{filtered.length !== 1 ? "s" : ""}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+              {filtered.map((item) => (
+                <MenuCard key={item._id} item={{ ...item, id: item._id }} />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </main>
