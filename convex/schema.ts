@@ -13,6 +13,7 @@ export default defineSchema({
     description: v.string(),
     ingredients: v.array(v.string()),
     price: v.number(),
+    costPrice: v.optional(v.number()), // cost of goods for margin tracking
     available: v.boolean(),
     emoji: v.string(),
     gradient: v.string(),
@@ -26,7 +27,7 @@ export default defineSchema({
     orderNumber: v.string(),
     customerName: v.string(),
     customerPhone: v.string(),
-    deliveryType: v.union(v.literal("pickup"), v.literal("delivery")),
+    deliveryType: v.union(v.literal("pickup"), v.literal("delivery"), v.literal("walkin")),
     deliveryAddress: v.optional(v.string()),
     specialInstructions: v.optional(v.string()),
     items: v.array(
@@ -39,11 +40,20 @@ export default defineSchema({
       })
     ),
     subtotal: v.number(),
+    deliveryFee: v.optional(v.number()),
+    total: v.optional(v.number()), // subtotal + deliveryFee
+    paymentMethod: v.optional(v.union(v.literal("cash"), v.literal("transfer"), v.literal("card"), v.literal("pending"))),
+    source: v.optional(v.union(v.literal("web"), v.literal("walkin"))),
+    processedBy: v.optional(v.string()), // team member id
+    processedByName: v.optional(v.string()),
+    riderName: v.optional(v.string()),
+    riderPhone: v.optional(v.string()),
     status: v.union(
       v.literal("pending"),
       v.literal("confirmed"),
       v.literal("preparing"),
       v.literal("ready"),
+      v.literal("dispatched"),
       v.literal("completed"),
       v.literal("cancelled")
     ),
@@ -51,5 +61,37 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_status", ["status"])
-    .index("by_created", ["createdAt"]),
+    .index("by_created", ["createdAt"])
+    .index("by_source", ["source"]),
+
+  expenses: defineTable({
+    date: v.string(), // YYYY-MM-DD
+    category: v.union(
+      v.literal("ingredients"),
+      v.literal("rent"),
+      v.literal("transport"),
+      v.literal("packaging"),
+      v.literal("staff"),
+      v.literal("utilities"),
+      v.literal("marketing"),
+      v.literal("misc")
+    ),
+    amount: v.number(),
+    note: v.optional(v.string()),
+    addedBy: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_date", ["date"]),
+
+  teamMembers: defineTable({
+    name: v.string(),
+    pin: v.string(), // 4-digit PIN (stored as string)
+    role: v.union(v.literal("admin"), v.literal("cashier")),
+    active: v.boolean(),
+    createdAt: v.number(),
+  }).index("by_pin", ["pin"]),
+
+  settings: defineTable({
+    key: v.string(),
+    value: v.string(),
+  }).index("by_key", ["key"]),
 });

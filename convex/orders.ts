@@ -1,20 +1,15 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, action } from "./_generated/server";
 import { v } from "convex/values";
+import { api } from "./_generated/api";
 
 const statusValues = v.union(
-  v.literal("pending"),
-  v.literal("confirmed"),
-  v.literal("preparing"),
-  v.literal("ready"),
-  v.literal("completed"),
-  v.literal("cancelled")
+  v.literal("pending"), v.literal("confirmed"), v.literal("preparing"),
+  v.literal("ready"), v.literal("dispatched"), v.literal("completed"), v.literal("cancelled")
 );
 
 export const list = query({
   args: {},
-  handler: async (ctx) => {
-    return ctx.db.query("orders").order("desc").collect();
-  },
+  handler: async (ctx) => ctx.db.query("orders").order("desc").collect(),
 });
 
 export const get = query({
@@ -26,27 +21,27 @@ export const create = mutation({
   args: {
     customerName: v.string(),
     customerPhone: v.string(),
-    deliveryType: v.union(v.literal("pickup"), v.literal("delivery")),
+    deliveryType: v.union(v.literal("pickup"), v.literal("delivery"), v.literal("walkin")),
     deliveryAddress: v.optional(v.string()),
     specialInstructions: v.optional(v.string()),
-    items: v.array(
-      v.object({
-        productId: v.string(),
-        name: v.string(),
-        price: v.number(),
-        quantity: v.number(),
-        emoji: v.string(),
-      })
-    ),
+    items: v.array(v.object({ productId: v.string(), name: v.string(), price: v.number(), quantity: v.number(), emoji: v.string() })),
     subtotal: v.number(),
+    deliveryFee: v.optional(v.number()),
+    paymentMethod: v.optional(v.union(v.literal("cash"), v.literal("transfer"), v.literal("card"), v.literal("pending"))),
+    source: v.optional(v.union(v.literal("web"), v.literal("walkin"))),
+    processedBy: v.optional(v.string()),
+    processedByName: v.optional(v.string()),
+    status: v.optional(statusValues),
   },
   handler: async (ctx, args) => {
     const orderNumber = `SO-${Date.now().toString().slice(-6)}`;
     const now = Date.now();
+    const total = (args.subtotal ?? 0) + (args.deliveryFee ?? 0);
     return ctx.db.insert("orders", {
       ...args,
       orderNumber,
-      status: "pending",
+      total,
+      status: args.status ?? "pending",
       createdAt: now,
       updatedAt: now,
     });
@@ -55,9 +50,13 @@ export const create = mutation({
 
 export const updateStatus = mutation({
   args: { id: v.id("orders"), status: statusValues },
-  handler: async (ctx, { id, status }) => {
-    await ctx.db.patch(id, { status, updatedAt: Date.now() });
-  },
+  handler: async (ctx, { id, status }) => ctx.db.patch(id, { status, updatedAt: Date.now() }),
+});
+
+export const assignRider = mutation({
+  args: { id: v.id("orders"), riderName: v.string(), riderPhone: v.string() },
+  handler: async (ctx, { id, riderName, riderPhone }) =>
+    ctx.db.patch(id, { riderName, riderPhone, updatedAt: Date.now() }),
 });
 
 export const getStats = query({
@@ -65,19 +64,116 @@ export const getStats = query({
   handler: async (ctx) => {
     const all = await ctx.db.query("orders").collect();
     const today = new Date().toDateString();
-    const todayOrders = all.filter(
-      (o) => new Date(o.createdAt).toDateString() === today
-    );
+    const todayOrders = all.filter((o) => new Date(o.createdAt).toDateString() === today);
+    const webOrders = todayOrders.filter((o) => o.source !== "walkin");
+    const walkinOrders = todayOrders.filter((o) => o.source === "walkin");
+    const revenue = todayOrders.filter((o) => o.status !== "cancelled").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
+    const cashRevenue = todayOrders.filter((o) => o.status !== "cancelled" && o.paymentMethod === "cash").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
+    const transferRevenue = todayOrders.filter((o) => o.status !== "cancelled" && o.paymentMethod === "transfer").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
     return {
       total: todayOrders.length,
       pending: todayOrders.filter((o) => o.status === "pending").length,
-      active: todayOrders.filter((o) =>
-        ["confirmed", "preparing", "ready"].includes(o.status)
-      ).length,
+      active: todayOrders.filter((o) => ["confirmed", "preparing", "ready", "dispatched"].includes(o.status)).length,
       completed: todayOrders.filter((o) => o.status === "completed").length,
-      revenue: todayOrders
-        .filter((o) => o.status !== "cancelled")
-        .reduce((s, o) => s + o.subtotal, 0),
+      revenue, cashRevenue, transferRevenue,
+      webOrders: webOrders.length,
+      walkinOrders: walkinOrders.length,
     };
+  },
+});
+
+export const getEodReport = query({
+  args: { date: v.optional(v.string()) },
+  handler: async (ctx, { date }) => {
+    const all = await ctx.db.query("orders").collect();
+    const target = date ?? new Date().toDateString();
+    const dayOrders = all.filter((o) => new Date(o.createdAt).toDateString() === target);
+    const completed = dayOrders.filter((o) => o.status !== "cancelled");
+    const revenue = completed.reduce((s, o) => s + (o.total ?? o.subtotal), 0);
+    const cash = completed.filter((o) => o.paymentMethod === "cash").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
+    const transfer = completed.filter((o) => o.paymentMethod === "transfer").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
+    return {
+      date: target,
+      totalOrders: dayOrders.length,
+      completedOrders: completed.length,
+      cancelledOrders: dayOrders.filter((o) => o.status === "cancelled").length,
+      revenue, cash, transfer,
+      webOrders: dayOrders.filter((o) => o.source !== "walkin").length,
+      walkinOrders: dayOrders.filter((o) => o.source === "walkin").length,
+      orders: dayOrders,
+    };
+  },
+});
+
+// WhatsApp notification via Meta Business Cloud API
+export const notifyWhatsApp = action({
+  args: {
+    orderNumber: v.string(),
+    customerName: v.string(),
+    items: v.array(v.object({ name: v.string(), quantity: v.number(), price: v.number(), emoji: v.string() })),
+    subtotal: v.number(),
+    deliveryType: v.string(),
+    deliveryAddress: v.optional(v.string()),
+    customerPhone: v.string(),
+  },
+  handler: async (_ctx, args) => {
+    const waToken = process.env.WHATSAPP_ACCESS_TOKEN;
+    const waPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const adminPhone = process.env.WHATSAPP_ADMIN_PHONE; // e.g. 2348012345678
+
+    if (!waToken || !waPhoneId || !adminPhone) return { sent: false, reason: "WhatsApp not configured" };
+
+    const itemsList = args.items.map((i) => `  ${i.emoji} ${i.name} ×${i.quantity} — ₦${(i.price * i.quantity).toLocaleString()}`).join("\n");
+    const message = `🍊 *New Spot-On Order!*\n\n*Order:* ${args.orderNumber}\n*Customer:* ${args.customerName}\n*Phone:* ${args.customerPhone}\n*Type:* ${args.deliveryType}\n${args.deliveryAddress ? `*Address:* ${args.deliveryAddress}\n` : ""}\n*Items:*\n${itemsList}\n\n*Total: ₦${args.subtotal.toLocaleString()}*`;
+
+    try {
+      const res = await fetch(`https://graph.facebook.com/v19.0/${waPhoneId}/messages`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${waToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: adminPhone,
+          type: "text",
+          text: { body: message },
+        }),
+      });
+      const data = await res.json();
+      return { sent: res.ok, data };
+    } catch (e) {
+      return { sent: false, reason: String(e) };
+    }
+  },
+});
+
+// Convenience action: create order + send WhatsApp notification
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const createWithNotify: any = action({
+  args: {
+    customerName: v.string(),
+    customerPhone: v.string(),
+    deliveryType: v.union(v.literal("pickup"), v.literal("delivery"), v.literal("walkin")),
+    deliveryAddress: v.optional(v.string()),
+    specialInstructions: v.optional(v.string()),
+    items: v.array(v.object({ productId: v.string(), name: v.string(), price: v.number(), quantity: v.number(), emoji: v.string() })),
+    subtotal: v.number(),
+    deliveryFee: v.optional(v.number()),
+    paymentMethod: v.optional(v.union(v.literal("cash"), v.literal("transfer"), v.literal("card"), v.literal("pending"))),
+    source: v.optional(v.union(v.literal("web"), v.literal("walkin"))),
+  },
+  handler: async (ctx, args) => {
+    const orderId = await ctx.runMutation(api.orders.create, args);
+    const order = await ctx.runQuery(api.orders.get, { id: orderId });
+    if (order) {
+      await ctx.runAction(api.orders.notifyWhatsApp, {
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        customerPhone: order.customerPhone,
+        items: order.items,
+        subtotal: order.subtotal,
+        deliveryType: order.deliveryType,
+        deliveryAddress: order.deliveryAddress,
+      });
+    }
+    return orderId;
   },
 });

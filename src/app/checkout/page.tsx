@@ -10,6 +10,8 @@ import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/menu";
 import { Loader2, MapPin, Store, CheckCircle2 } from "lucide-react";
 
+const DELIVERY_FEE = 500; // default flat delivery fee
+
 export default function CheckoutPage() {
   const router = useRouter();
   const { items, total, clearCart } = useCart();
@@ -21,6 +23,7 @@ export default function CheckoutPage() {
     deliveryType: "pickup" as "pickup" | "delivery",
     deliveryAddress: "",
     specialInstructions: "",
+    paymentMethod: "pending" as "pending" | "cash" | "transfer" | "card",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -28,6 +31,10 @@ export default function CheckoutPage() {
   function update(field: string, val: string) {
     setForm((f) => ({ ...f, [field]: val }));
   }
+
+  const subtotal = total();
+  const deliveryFee = form.deliveryType === "delivery" ? DELIVERY_FEE : 0;
+  const orderTotal = subtotal + deliveryFee;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -37,22 +44,34 @@ export default function CheckoutPage() {
     setError(""); setLoading(true);
 
     try {
-      const subtotal = total();
       const orderId = await createOrder({
         customerName: form.customerName,
         customerPhone: form.customerPhone,
         deliveryType: form.deliveryType,
         deliveryAddress: form.deliveryAddress || undefined,
         specialInstructions: form.specialInstructions || undefined,
-        items: items.map(({ item, quantity }) => ({
-          productId: item.id,
-          name: item.name,
-          price: item.price,
-          quantity,
-          emoji: item.emoji,
-        })),
+        items: items.map(({ item, quantity }) => ({ productId: item.id, name: item.name, price: item.price, quantity, emoji: item.emoji })),
         subtotal,
+        deliveryFee: deliveryFee || undefined,
+        paymentMethod: form.paymentMethod,
+        source: "web",
       });
+
+      // Fire WhatsApp notification (non-blocking)
+      fetch("/api/notify-whatsapp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderNumber: `SO-${Date.now().toString().slice(-6)}`,
+          customerName: form.customerName,
+          customerPhone: form.customerPhone,
+          items: items.map(({ item, quantity }) => ({ name: item.name, quantity, price: item.price, emoji: item.emoji })),
+          subtotal: orderTotal,
+          deliveryType: form.deliveryType,
+          deliveryAddress: form.deliveryAddress,
+        }),
+      }).catch(() => { /* silent fail */ });
+
       clearCart();
       router.push(`/order/${orderId}`);
     } catch {
@@ -95,8 +114,8 @@ export default function CheckoutPage() {
                 <h2 className="text-white font-bold text-lg">Delivery Method</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
-                    { value: "pickup", label: "Pickup", desc: "Come pick it up fresh", icon: <Store className="w-5 h-5" /> },
-                    { value: "delivery", label: "Delivery", desc: "We bring it to you", icon: <MapPin className="w-5 h-5" /> },
+                    { value: "pickup", label: "Pickup", desc: "Come pick it up — free", icon: <Store className="w-5 h-5" /> },
+                    { value: "delivery", label: "Delivery", desc: `We bring it to you (+${formatPrice(DELIVERY_FEE)})`, icon: <MapPin className="w-5 h-5" /> },
                   ].map((opt) => (
                     <button type="button" key={opt.value} onClick={() => update("deliveryType", opt.value)}
                       className={`flex items-center gap-4 p-4 rounded-xl border transition-all text-left ${form.deliveryType === opt.value ? "border-green-500 bg-green-900/30 text-white" : "border-white/20 bg-white/5 text-gray-400 hover:border-white/30"}`}>
@@ -112,6 +131,18 @@ export default function CheckoutPage() {
                     <textarea value={form.deliveryAddress} onChange={(e) => update("deliveryAddress", e.target.value)} placeholder="Enter your full delivery address..." rows={3} className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-500 focus:outline-none focus:border-green-500 transition-colors resize-none" />
                   </div>
                 )}
+              </div>
+
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-3">
+                <h2 className="text-white font-bold text-lg">Payment Method</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[{val:"pending",label:"Pay Later"},{val:"cash",label:"Cash"},{val:"transfer",label:"Transfer"},{val:"card",label:"Card/POS"}].map(pm=>(
+                    <button type="button" key={pm.val} onClick={()=>update("paymentMethod",pm.val)}
+                      className={`py-3 rounded-xl text-sm font-semibold transition-all border ${form.paymentMethod===pm.val?"border-green-500 bg-green-900/30 text-white":"border-white/20 bg-white/5 text-gray-400 hover:border-white/30"}`}>
+                      {pm.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-3">
@@ -134,10 +165,12 @@ export default function CheckoutPage() {
                     </div>
                   ))}
                 </div>
-                <div className="border-t border-white/10 pt-4 flex justify-between text-white font-bold text-lg">
-                  <span>Total</span><span className="text-green-400">{formatPrice(total())}</span>
+                <div className="border-t border-white/10 pt-3 space-y-2">
+                  <div className="flex justify-between text-gray-300 text-sm"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div>
+                  {deliveryFee > 0 && <div className="flex justify-between text-gray-300 text-sm"><span>Delivery fee</span><span>{formatPrice(deliveryFee)}</span></div>}
+                  <div className="flex justify-between text-white font-bold text-lg"><span>Total</span><span className="text-green-400">{formatPrice(orderTotal)}</span></div>
                 </div>
-                <p className="text-gray-500 text-xs">Payment collected on delivery/pickup</p>
+                {form.paymentMethod === "pending" && <p className="text-gray-500 text-xs">💡 Payment collected on delivery/pickup</p>}
                 <button type="submit" disabled={loading} className="w-full py-4 rounded-full bg-orange-500 hover:bg-orange-400 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold transition-all flex items-center justify-center gap-2">
                   {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Placing Order...</> : "Place Order 🚀"}
                 </button>

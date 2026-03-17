@@ -1,423 +1,797 @@
 // @ts-nocheck
 "use client";
 export const dynamic = "force-dynamic";
-import { useEffect, useState } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useEffect, useState, useRef } from "react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
 import { formatPrice } from "@/lib/menu";
 import {
-  Loader2, RefreshCw, LogOut, CheckCircle2, Clock, ChefHat,
-  PackageCheck, Bike, XCircle, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, Package, ShoppingBag,
+  Loader2, LogOut, Plus, Pencil, Trash2, ToggleLeft, ToggleRight,
+  Package, ShoppingBag, DollarSign, Users, BarChart3, Zap, Printer,
+  CheckCircle2, Clock, ChefHat, PackageCheck, Bike, XCircle, Truck,
+  Copy, Check, RefreshCw, X, TrendingUp, TrendingDown,
 } from "lucide-react";
 
-const ADMIN_PASSWORD = "spoton2024";
+// ── types ──────────────────────────────────────────────────────
+type OrderStatus = "pending"|"confirmed"|"preparing"|"ready"|"dispatched"|"completed"|"cancelled";
+type TabId = "pos"|"orders"|"products"|"expenses"|"team"|"reports";
+type Role = "admin"|"cashier";
 
-type OrderStatus = "pending" | "confirmed" | "preparing" | "ready" | "completed" | "cancelled";
-const STATUS_CONFIG: Record<OrderStatus, { label: string; color: string; icon: React.ElementType }> = {
-  pending:   { label: "Pending",   color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",   icon: Clock },
-  confirmed: { label: "Confirmed", color: "bg-blue-500/20 text-blue-400 border-blue-500/30",         icon: CheckCircle2 },
-  preparing: { label: "Preparing", color: "bg-orange-500/20 text-orange-400 border-orange-500/30",   icon: ChefHat },
-  ready:     { label: "Ready",     color: "bg-green-500/20 text-green-400 border-green-500/30",       icon: PackageCheck },
-  completed: { label: "Completed", color: "bg-gray-500/20 text-gray-400 border-gray-500/30",         icon: Bike },
-  cancelled: { label: "Cancelled", color: "bg-red-500/20 text-red-400 border-red-500/30",            icon: XCircle },
-};
-const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
-  pending: "confirmed", confirmed: "preparing", preparing: "ready", ready: "completed",
-};
+interface TeamMember { _id: string; name: string; pin: string; role: Role; active: boolean }
 
+const STATUS_CFG: Record<OrderStatus,{label:string;color:string;icon:React.ElementType}> = {
+  pending:   {label:"Pending",   color:"bg-yellow-500/20 text-yellow-400 border-yellow-500/30",   icon:Clock},
+  confirmed: {label:"Confirmed", color:"bg-blue-500/20 text-blue-400 border-blue-500/30",         icon:CheckCircle2},
+  preparing: {label:"Preparing", color:"bg-orange-500/20 text-orange-400 border-orange-500/30",   icon:ChefHat},
+  ready:     {label:"Ready",     color:"bg-green-500/20 text-green-400 border-green-500/30",       icon:PackageCheck},
+  dispatched:{label:"Dispatched",color:"bg-purple-500/20 text-purple-400 border-purple-500/30",   icon:Truck},
+  completed: {label:"Completed", color:"bg-gray-500/20 text-gray-400 border-gray-500/30",         icon:Bike},
+  cancelled: {label:"Cancelled", color:"bg-red-500/20 text-red-400 border-red-500/30",            icon:XCircle},
+};
+const NEXT_STATUS: Partial<Record<OrderStatus,OrderStatus>> = {
+  pending:"confirmed",confirmed:"preparing",preparing:"ready",ready:"dispatched",dispatched:"completed",
+};
+const EXPENSE_CATS = ["ingredients","rent","transport","packaging","staff","utilities","marketing","misc"] as const;
 const GRADIENTS = [
-  "from-orange-400 to-yellow-300", "from-yellow-400 to-amber-300", "from-red-400 to-pink-300",
-  "from-orange-500 to-yellow-400", "from-red-600 to-pink-500", "from-amber-700 to-amber-500",
-  "from-yellow-500 to-lime-400", "from-purple-500 to-orange-400", "from-green-500 to-lime-400",
-  "from-orange-400 to-amber-300", "from-teal-400 to-green-300", "from-orange-400 to-pink-400",
-  "from-pink-400 to-rose-300", "from-green-500 to-emerald-400", "from-purple-600 to-pink-400",
-  "from-amber-400 to-yellow-300", "from-emerald-500 to-green-400", "from-amber-500 to-orange-400",
+  "from-orange-400 to-yellow-300","from-yellow-400 to-amber-300","from-red-400 to-pink-300",
+  "from-orange-500 to-yellow-400","from-red-600 to-pink-500","from-amber-700 to-amber-500",
+  "from-yellow-500 to-lime-400","from-purple-500 to-orange-400","from-green-500 to-lime-400",
+  "from-orange-400 to-amber-300","from-teal-400 to-green-300","from-orange-400 to-pink-400",
+  "from-pink-400 to-rose-300","from-green-500 to-emerald-400","from-purple-600 to-pink-400",
+  "from-amber-400 to-yellow-300","from-emerald-500 to-green-400","from-amber-500 to-orange-400",
 ];
 
-const EMPTY_PRODUCT = { name: "", category: "juice" as const, description: "", ingredients: "", price: "", emoji: "🍊", gradient: "from-orange-400 to-yellow-300", badge: "", available: true };
-type ProductCategory = "juice" | "smoothie" | "salad" | "sandwich";
+function today() { return new Date().toISOString().split("T")[0]; }
 
+// ── PIN Login ─────────────────────────────────────────────────
+function PinLogin({ onLogin }: { onLogin:(m:TeamMember)=>void }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const member = useQuery(api.team.verifyPin, { pin: pin.length === 4 ? pin : "----" });
+  const seedOwner = useMutation(api.team.seedOwner);
+
+  useEffect(() => {
+    if (pin.length === 4) {
+      if (member) { onLogin(member); setPin(""); setError(""); }
+      else { setError("Invalid PIN"); setTimeout(()=>{ setPin(""); setError(""); }, 1200); }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [member, pin]);
+
+  return (
+    <main className="bg-[#081C15] min-h-screen flex items-center justify-center px-4">
+      <div className="w-full max-w-xs space-y-6 text-center">
+        <div><span className="text-5xl block mb-2">🍊</span><h1 className="text-2xl font-extrabold text-white">Spot-On Staff</h1><p className="text-gray-400 text-sm mt-1">Enter your PIN</p></div>
+        <div className="flex justify-center gap-3">
+          {[0,1,2,3].map(i=>(
+            <div key={i} className={`w-4 h-4 rounded-full border-2 ${i<pin.length?"bg-green-400 border-green-400":"border-white/30"}`} />
+          ))}
+        </div>
+        {error && <p className="text-red-400 text-sm animate-pulse">{error}</p>}
+        <div className="grid grid-cols-3 gap-3">
+          {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k,i)=>(
+            <button key={i} onClick={()=>{
+              if(k==="⌫") setPin(p=>p.slice(0,-1));
+              else if(k!==""&&pin.length<4) setPin(p=>p+k);
+            }}
+            className={`h-14 rounded-xl font-bold text-xl transition-all active:scale-95 ${k===""?"invisible":"bg-white/10 hover:bg-white/20 text-white"}`}>
+              {k}
+            </button>
+          ))}
+        </div>
+        <button onClick={()=>seedOwner({})} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
+          First time? Seed owner (PIN: 1234)
+        </button>
+      </div>
+    </main>
+  );
+}
+
+// ── Receipt print helper ───────────────────────────────────────
+function printReceipt(order: any) {
+  const w = window.open("","_blank","width=300,height=600");
+  if (!w) return;
+  const items = order.items.map((i: any) => `<tr><td>${i.emoji} ${i.name} ×${i.quantity}</td><td style="text-align:right">₦${(i.price*i.quantity).toLocaleString()}</td></tr>`).join("");
+  w.document.write(`<!DOCTYPE html><html><head><title>Receipt</title><style>
+    body{font-family:monospace;font-size:12px;width:280px;margin:0 auto;padding:8px}
+    h2{text-align:center;font-size:16px;margin:4px 0}
+    .center{text-align:center}.divider{border-top:1px dashed #000;margin:6px 0}
+    table{width:100%}td{padding:2px 0}.total{font-weight:bold;font-size:14px}
+  </style></head><body>
+    <h2>🍊 SPOT-ON</h2>
+    <p class="center">Fresh Juices & Salads</p>
+    <div class="divider"></div>
+    <p><b>Order:</b> ${order.orderNumber}</p>
+    <p><b>Date:</b> ${new Date(order.createdAt).toLocaleString("en-NG")}</p>
+    <p><b>Customer:</b> ${order.customerName}</p>
+    ${order.customerPhone !== "Walk-in" ? `<p><b>Phone:</b> ${order.customerPhone}</p>` : ""}
+    <div class="divider"></div>
+    <table>${items}</table>
+    <div class="divider"></div>
+    ${order.deliveryFee ? `<p style="text-align:right">Delivery: ₦${order.deliveryFee.toLocaleString()}</p>` : ""}
+    <p class="total" style="text-align:right">TOTAL: ₦${(order.total??order.subtotal).toLocaleString()}</p>
+    ${order.paymentMethod ? `<p style="text-align:right">Paid: ${order.paymentMethod.toUpperCase()}</p>` : ""}
+    <div class="divider"></div>
+    <p class="center">Thank you! Come again 🙏</p>
+  </body></html>`);
+  w.document.close();
+  w.print();
+}
+
+// ── Main Admin ─────────────────────────────────────────────────
 export default function AdminPage() {
-  const [authed, setAuthed] = useState(false);
-  const [password, setPassword] = useState("");
-  const [authError, setAuthError] = useState("");
-  const [tab, setTab] = useState<"orders" | "products">("orders");
+  const [user, setUser] = useState<TeamMember|null>(null);
+  const [tab, setTab] = useState<TabId>("pos");
 
-  // Orders
+  useEffect(() => {
+    const saved = localStorage.getItem("spoton-user");
+    if (saved) try { setUser(JSON.parse(saved)); } catch { /**/ }
+  }, []);
+
+  function handleLogin(m: TeamMember) {
+    setUser(m);
+    localStorage.setItem("spoton-user", JSON.stringify(m));
+    setTab(m.role === "cashier" ? "pos" : "pos");
+  }
+
+  function handleLogout() {
+    setUser(null);
+    localStorage.removeItem("spoton-user");
+  }
+
+  if (!user) return <PinLogin onLogin={handleLogin} />;
+
+  const isAdmin = user.role === "admin";
+  const tabs: {id:TabId;label:string;icon:React.ElementType;adminOnly?:boolean}[] = [
+    {id:"pos",    label:"Quick Sale", icon:Zap},
+    {id:"orders", label:"Orders",     icon:ShoppingBag},
+    {id:"products",label:"Products",  icon:Package, adminOnly:true},
+    {id:"expenses",label:"Expenses",  icon:DollarSign, adminOnly:true},
+    {id:"team",   label:"Team",       icon:Users, adminOnly:true},
+    {id:"reports",label:"Reports",    icon:BarChart3, adminOnly:true},
+  ].filter(t => !t.adminOnly || isAdmin);
+
+  return (
+    <main className="bg-[#081C15] min-h-screen">
+      <header className="bg-black/40 border-b border-white/10 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2"><span className="text-xl">🍊</span><span className="text-white font-bold">Spot-On</span></div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400 hidden sm:block">{user.name} · {user.role}</span>
+          <button onClick={handleLogout} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-white/10 hover:bg-red-900/40 text-gray-300 text-sm transition-colors">
+            <LogOut className="w-3.5 h-3.5" /> Out
+          </button>
+        </div>
+      </header>
+
+      {/* Tab bar */}
+      <div className="flex overflow-x-auto scrollbar-hide gap-1 px-4 py-3 border-b border-white/10 bg-black/20">
+        {tabs.map(({id,label,icon:Icon})=>(
+          <button key={id} onClick={()=>setTab(id)}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all ${tab===id?"bg-green-700 text-white":"bg-white/10 text-gray-300 hover:bg-white/20"}`}>
+            <Icon className="w-4 h-4" />{label}
+          </button>
+        ))}
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        {tab==="pos"     && <PosTab user={user} />}
+        {tab==="orders"  && <OrdersTab user={user} />}
+        {tab==="products"&& <ProductsTab />}
+        {tab==="expenses"&& <ExpensesTab user={user} />}
+        {tab==="team"    && <TeamTab />}
+        {tab==="reports" && <ReportsTab />}
+      </div>
+    </main>
+  );
+}
+
+// ── POS Quick Sale Tab ─────────────────────────────────────────
+function PosTab({ user }: { user: TeamMember }) {
+  const products = useQuery(api.products.list, {});
+  const createOrder = useMutation(api.orders.create);
+  const [cart, setCart] = useState<{id:string;name:string;emoji:string;price:number;qty:number}[]>([]);
+  const [customerName, setCustomerName] = useState("Walk-in");
+  const [paymentMethod, setPaymentMethod] = useState<"cash"|"transfer"|"card">("cash");
+  const [loading, setLoading] = useState(false);
+  const [lastOrder, setLastOrder] = useState<any>(null);
+  const [catFilter, setCatFilter] = useState("all");
+
+  const cats = ["all","juice","smoothie","salad","sandwich"];
+  const filtered = (products??[]).filter(p=>p.available&&(catFilter==="all"||p.category===catFilter));
+  const subtotal = cart.reduce((s,i)=>s+i.price*i.qty,0);
+
+  function addToCart(p: any) {
+    setCart(c=>{
+      const ex = c.find(i=>i.id===p._id);
+      if(ex) return c.map(i=>i.id===p._id?{...i,qty:i.qty+1}:i);
+      return [...c,{id:p._id,name:p.name,emoji:p.emoji,price:p.price,qty:1}];
+    });
+  }
+
+  async function charge() {
+    if(!cart.length) return;
+    setLoading(true);
+    try {
+      const id = await createOrder({
+        customerName,
+        customerPhone: "Walk-in",
+        deliveryType: "walkin",
+        items: cart.map(i=>({productId:i.id,name:i.name,price:i.price,quantity:i.qty,emoji:i.emoji})),
+        subtotal,
+        paymentMethod,
+        source: "walkin",
+        processedBy: user._id,
+        processedByName: user.name,
+        status: "completed",
+      });
+      const order = { _id:id, orderNumber:`SO-${Date.now().toString().slice(-6)}`, customerName, customerPhone:"Walk-in", items:cart.map(i=>({...i,quantity:i.qty})), subtotal, total:subtotal, paymentMethod, createdAt:Date.now() };
+      setLastOrder(order);
+      setCart([]);
+      setCustomerName("Walk-in");
+    } finally { setLoading(false); }
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Product grid */}
+      <div className="lg:col-span-2 space-y-4">
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+          {cats.map(c=>(
+            <button key={c} onClick={()=>setCatFilter(c)}
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all capitalize ${catFilter===c?"bg-green-700 text-white":"bg-white/10 text-gray-300 hover:bg-white/20"}`}>
+              {c}
+            </button>
+          ))}
+        </div>
+        {!products ? (
+          <div className="flex items-center gap-2 text-gray-400 py-8"><Loader2 className="w-5 h-5 animate-spin"/>Loading menu...</div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {filtered.map(p=>{
+              const inCart = cart.find(i=>i.id===p._id);
+              return (
+                <button key={p._id} onClick={()=>addToCart(p)}
+                  className={`relative p-3 rounded-xl border text-left transition-all active:scale-95 hover:border-green-500/50 ${inCart?"border-green-500/50 bg-green-900/20":"border-white/10 bg-white/5"}`}>
+                  <div className={`h-16 rounded-lg bg-gradient-to-br ${p.gradient} flex items-center justify-center text-3xl mb-2`}>{p.emoji}</div>
+                  <p className="text-white text-xs font-semibold leading-tight truncate">{p.name}</p>
+                  <p className="text-green-400 text-sm font-bold mt-0.5">{formatPrice(p.price)}</p>
+                  {inCart && <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-green-600 text-white text-xs font-bold flex items-center justify-center">{inCart.qty}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Cart / charge */}
+      <div className="space-y-4">
+        {lastOrder && (
+          <div className="bg-green-900/30 border border-green-600/40 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-green-400 font-bold text-sm">✅ Sale recorded!</p>
+              <button onClick={()=>setLastOrder(null)}><X className="w-4 h-4 text-gray-400"/></button>
+            </div>
+            <button onClick={()=>printReceipt(lastOrder)} className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-semibold transition-colors">
+              <Printer className="w-4 h-4"/> Print Receipt
+            </button>
+          </div>
+        )}
+
+        <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+          <h3 className="text-white font-bold">Current Sale</h3>
+          <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Customer name (optional)"
+            className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
+
+          {cart.length===0 ? (
+            <p className="text-gray-500 text-sm text-center py-4">Tap products to add →</p>
+          ) : (
+            <div className="space-y-2 max-h-48 overflow-y-auto scrollbar-hide">
+              {cart.map(i=>(
+                <div key={i.id} className="flex items-center justify-between gap-2">
+                  <span className="text-white text-sm flex-1 truncate">{i.emoji} {i.name}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={()=>setCart(c=>c.map(x=>x.id===i.id?{...x,qty:Math.max(0,x.qty-1)}:x).filter(x=>x.qty>0))}
+                      className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-white text-sm hover:bg-white/20">-</button>
+                    <span className="text-white text-sm w-4 text-center">{i.qty}</span>
+                    <button onClick={()=>setCart(c=>c.map(x=>x.id===i.id?{...x,qty:x.qty+1}:x))}
+                      className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-white text-sm hover:bg-white/20">+</button>
+                  </div>
+                  <span className="text-green-400 text-sm font-semibold shrink-0 w-20 text-right">{formatPrice(i.price*i.qty)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-between text-white font-bold text-lg border-t border-white/10 pt-3">
+            <span>Total</span><span className="text-green-400">{formatPrice(subtotal)}</span>
+          </div>
+
+          <div className="flex gap-2">
+            {(["cash","transfer","card"] as const).map(m=>(
+              <button key={m} onClick={()=>setPaymentMethod(m)}
+                className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all capitalize ${paymentMethod===m?"bg-green-700 text-white":"bg-white/10 text-gray-300 hover:bg-white/20"}`}>
+                {m}
+              </button>
+            ))}
+          </div>
+
+          <button onClick={charge} disabled={loading||!cart.length}
+            className="w-full py-4 rounded-xl bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-white font-bold text-lg transition-all active:scale-95 flex items-center justify-center gap-2">
+            {loading?<Loader2 className="w-5 h-5 animate-spin"/>:<Zap className="w-5 h-5"/>}
+            Charge {cart.length>0&&formatPrice(subtotal)}
+          </button>
+          {cart.length>0&&<button onClick={()=>setCart([])} className="w-full py-2 rounded-lg bg-white/5 text-gray-400 text-sm hover:bg-white/10 transition-colors">Clear cart</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Orders Tab ─────────────────────────────────────────────────
+function OrdersTab({ user }: { user: TeamMember }) {
   const orders = useQuery(api.orders.list);
   const stats = useQuery(api.orders.getStats);
   const updateStatus = useMutation(api.orders.updateStatus);
-  const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
-  const [updatingOrder, setUpdatingOrder] = useState<string | null>(null);
+  const assignRider = useMutation(api.orders.assignRider);
+  const [selected, setSelected] = useState<any>(null);
+  const [updating, setUpdating] = useState<string|null>(null);
+  const [riderForm, setRiderForm] = useState({name:"",phone:""});
+  const [showRider, setShowRider] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  // Products
+  async function handleStatus(id:string,status:OrderStatus){
+    setUpdating(id);
+    try{await updateStatus({id,status});}finally{setUpdating(null);}
+  }
+
+  function copyRiderText(order:any){
+    const text=`🛵 *SPOT-ON DELIVERY*\n\nCustomer: ${order.customerName}\nPhone: ${order.customerPhone}\nAddress: ${order.deliveryAddress||"N/A"}\n\nItems:\n${order.items.map((i:any)=>`${i.emoji} ${i.name} ×${i.quantity}`).join("\n")}\n\nTotal: ₦${(order.total??order.subtotal).toLocaleString()}\nPayment: ${order.paymentMethod||"Collect on delivery"}`;
+    navigator.clipboard.writeText(text);
+    setCopied(true); setTimeout(()=>setCopied(false),2000);
+  }
+
+  async function saveRider(){
+    if(!selected) return;
+    await assignRider({id:selected._id,riderName:riderForm.name,riderPhone:riderForm.phone});
+    setShowRider(false);
+  }
+
+  const selectedData = orders?.find((o:any)=>o._id===selected?._id);
+
+  return (
+    <div className="space-y-6">
+      {stats&&(
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            {label:"Today's Revenue",val:formatPrice(stats.revenue),color:"text-green-400"},
+            {label:"Pending",val:stats.pending,color:"text-yellow-400"},
+            {label:"In Progress",val:stats.active,color:"text-orange-400"},
+            {label:"Completed",val:stats.completed,color:"text-green-400"},
+          ].map(s=>(
+            <div key={s.label} className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
+              <p className={`text-xl font-extrabold ${s.color}`}>{s.val}</p>
+              <p className="text-gray-400 text-xs mt-0.5">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-2">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-white font-bold">All Orders</h2>
+            {!orders&&<Loader2 className="w-4 h-4 animate-spin text-gray-400"/>}
+          </div>
+          {orders?.length===0&&<div className="text-center py-16 text-gray-500"><span className="text-4xl block mb-3">📭</span>No orders yet.</div>}
+          {orders?.map((order:any)=>{
+            const S=STATUS_CFG[order.status as OrderStatus];
+            const Icon=S.icon;
+            const next=NEXT_STATUS[order.status as OrderStatus];
+            return(
+              <div key={order._id} onClick={()=>setSelected(order)}
+                className={`bg-white/5 border rounded-xl p-3 cursor-pointer transition-all ${selected?._id===order._id?"border-green-500/50":"border-white/10 hover:border-white/20"}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-white font-bold font-mono text-sm">{order.orderNumber}</span>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${S.color}`}><Icon className="w-3 h-3"/>{S.label}</span>
+                      {order.source==="walkin"&&<span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded-full border border-purple-500/30">Walk-in</span>}
+                    </div>
+                    <p className="text-gray-300 text-sm mt-0.5">{order.customerName}{order.customerPhone!=="Walk-in"&&` · ${order.customerPhone}`}</p>
+                    <p className="text-gray-500 text-xs">{order.items.length} items · {formatPrice(order.total??order.subtotal)} · {order.paymentMethod||"pending"}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <p className="text-gray-500 text-xs">{new Date(order.createdAt).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</p>
+                    {next&&(
+                      <button onClick={e=>{e.stopPropagation();handleStatus(order._id,next);}} disabled={updating===order._id}
+                        className="px-3 py-1.5 rounded-full bg-green-700 hover:bg-green-600 text-white text-xs font-semibold disabled:opacity-60">
+                        {updating===order._id?<Loader2 className="w-3 h-3 animate-spin"/>:`→ ${STATUS_CFG[next].label}`}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Order detail */}
+        <div className="sticky top-4 space-y-3">
+          {!selectedData?(
+            <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center text-gray-500"><span className="text-3xl block mb-2">👆</span>Click order to view</div>
+          ):(
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-white font-bold font-mono">{selectedData.orderNumber}</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full border ${STATUS_CFG[selectedData.status as OrderStatus].color}`}>{STATUS_CFG[selectedData.status as OrderStatus].label}</span>
+              </div>
+              <div className="text-sm space-y-1">
+                <p><span className="text-gray-400">Customer:</span> <span className="text-white">{selectedData.customerName}</span></p>
+                {selectedData.customerPhone!=="Walk-in"&&<p><span className="text-gray-400">Phone:</span> <span className="text-white">{selectedData.customerPhone}</span></p>}
+                <p><span className="text-gray-400">Type:</span> <span className="text-white capitalize">{selectedData.deliveryType}</span></p>
+                {selectedData.deliveryAddress&&<p><span className="text-gray-400">Address:</span> <span className="text-white">{selectedData.deliveryAddress}</span></p>}
+                {selectedData.riderName&&<p><span className="text-gray-400">Rider:</span> <span className="text-white">{selectedData.riderName} ({selectedData.riderPhone})</span></p>}
+              </div>
+              <div className="border-t border-white/10 pt-2 space-y-1">
+                {selectedData.items.map((i:any,idx:number)=>(
+                  <div key={idx} className="flex justify-between text-sm"><span className="text-gray-300">{i.emoji} {i.name} ×{i.quantity}</span><span className="text-white">{formatPrice(i.price*i.quantity)}</span></div>
+                ))}
+                {selectedData.deliveryFee>0&&<div className="flex justify-between text-sm"><span className="text-gray-400">Delivery fee</span><span className="text-white">{formatPrice(selectedData.deliveryFee)}</span></div>}
+                <div className="flex justify-between font-bold pt-1 border-t border-white/10"><span className="text-white">Total</span><span className="text-green-400">{formatPrice(selectedData.total??selectedData.subtotal)}</span></div>
+              </div>
+              <div className="space-y-2 pt-1">
+                {Object.entries(NEXT_STATUS).map(([from,to])=>selectedData.status===from?(
+                  <button key={to} onClick={()=>handleStatus(selectedData._id,to as OrderStatus)} disabled={updating===selectedData._id}
+                    className="w-full py-2 rounded-full bg-green-700 hover:bg-green-600 text-white text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2">
+                    {updating===selectedData._id?<Loader2 className="w-4 h-4 animate-spin"/>:null}Mark as {STATUS_CFG[to as OrderStatus].label}
+                  </button>
+                ):null)}
+                {selectedData.status==="pending"&&<button onClick={()=>handleStatus(selectedData._id,"cancelled")} className="w-full py-2 rounded-full bg-red-900/30 text-red-400 text-sm font-semibold hover:bg-red-800/40">Cancel</button>}
+                <button onClick={()=>printReceipt(selectedData)} className="w-full py-2 rounded-full bg-white/10 text-white text-sm font-semibold hover:bg-white/20 flex items-center justify-center gap-2">
+                  <Printer className="w-4 h-4"/> Print Receipt
+                </button>
+                {selectedData.deliveryType==="delivery"&&(
+                  <>
+                    <button onClick={()=>copyRiderText(selectedData)} className="w-full py-2 rounded-full bg-white/10 text-white text-sm font-semibold hover:bg-white/20 flex items-center justify-center gap-2">
+                      {copied?<Check className="w-4 h-4 text-green-400"/>:<Copy className="w-4 h-4"/>}
+                      {copied?"Copied!":"Copy for Rider WhatsApp"}
+                    </button>
+                    <button onClick={()=>{setShowRider(true);setRiderForm({name:selectedData.riderName||"",phone:selectedData.riderPhone||""}); }} className="w-full py-2 rounded-full bg-white/10 text-blue-300 text-sm font-semibold hover:bg-white/20 flex items-center justify-center gap-2">
+                      <Truck className="w-4 h-4"/> Assign Rider
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Rider modal */}
+      {showRider&&(
+        <>
+          <div className="fixed inset-0 bg-black/60 z-50" onClick={()=>setShowRider(false)}/>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-[#0d1f17] border border-white/10 rounded-2xl p-6 w-full max-w-sm space-y-4">
+              <h3 className="text-white font-bold text-lg">Assign Rider</h3>
+              <input value={riderForm.name} onChange={e=>setRiderForm(f=>({...f,name:e.target.value}))} placeholder="Rider name" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
+              <input value={riderForm.phone} onChange={e=>setRiderForm(f=>({...f,phone:e.target.value}))} placeholder="Rider phone" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
+              <div className="flex gap-3">
+                <button onClick={()=>setShowRider(false)} className="flex-1 py-3 rounded-full border border-white/20 text-gray-300 text-sm font-semibold">Cancel</button>
+                <button onClick={saveRider} className="flex-1 py-3 rounded-full bg-green-700 text-white text-sm font-bold">Save</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Products Tab ───────────────────────────────────────────────
+const EMPTY_PRODUCT = {name:"",category:"juice" as const,description:"",ingredients:"",price:"",costPrice:"",emoji:"🍊",gradient:"from-orange-400 to-yellow-300",badge:"",available:true};
+
+function ProductsTab() {
   const products = useQuery(api.products.list, {});
   const createProduct = useMutation(api.products.create);
   const updateProduct = useMutation(api.products.update);
   const removeProduct = useMutation(api.products.remove);
   const toggleAvailable = useMutation(api.products.toggleAvailable);
   const seedProducts = useMutation(api.products.seed);
-  const [showProductForm, setShowProductForm] = useState(false);
-  const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [productForm, setProductForm] = useState(EMPTY_PRODUCT);
-  const [productLoading, setProductLoading] = useState(false);
-  const [seedLoading, setSeedLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState<string|null>(null);
+  const [form, setForm] = useState(EMPTY_PRODUCT);
+  const [loading, setLoading] = useState(false);
   const [seedMsg, setSeedMsg] = useState("");
 
-  useEffect(() => {
-    const saved = localStorage.getItem("spoton-admin");
-    if (saved === ADMIN_PASSWORD) setAuthed(true);
-  }, []);
-
-  function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
-    if (password === ADMIN_PASSWORD) { localStorage.setItem("spoton-admin", ADMIN_PASSWORD); setAuthed(true); }
-    else setAuthError("Wrong password. Try again.");
+  async function handleSubmit(e:React.FormEvent){
+    e.preventDefault(); setLoading(true);
+    try{
+      const data={name:form.name,category:form.category,description:form.description,ingredients:form.ingredients.split(",").map(s=>s.trim()).filter(Boolean),price:Number(form.price),costPrice:form.costPrice?Number(form.costPrice):undefined,available:form.available,emoji:form.emoji,gradient:form.gradient,badge:form.badge||undefined};
+      if(editId) await updateProduct({id:editId,...data});
+      else await createProduct(data);
+      setShowForm(false); setForm(EMPTY_PRODUCT);
+    }finally{setLoading(false);}
   }
-
-  async function handleOrderStatus(orderId: string, status: OrderStatus) {
-    setUpdatingOrder(orderId);
-    try { await updateStatus({ id: orderId as Id<"orders">, status }); } finally { setUpdatingOrder(null); }
-  }
-
-  function openNewProduct() {
-    setEditingProductId(null);
-    setProductForm(EMPTY_PRODUCT);
-    setShowProductForm(true);
-  }
-
-  function openEditProduct(p: { _id: string; name: string; category: ProductCategory; description: string; ingredients: string[]; price: number; emoji: string; gradient: string; badge?: string; available: boolean }) {
-    setEditingProductId(p._id);
-    setProductForm({ name: p.name, category: p.category as "juice", description: p.description, ingredients: p.ingredients.join(", "), price: String(p.price), emoji: p.emoji, gradient: p.gradient, badge: p.badge ?? "", available: p.available });
-    setShowProductForm(true);
-  }
-
-  async function handleProductSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setProductLoading(true);
-    try {
-      const data = {
-        name: productForm.name,
-        category: productForm.category as ProductCategory,
-        description: productForm.description,
-        ingredients: productForm.ingredients.split(",").map((s) => s.trim()).filter(Boolean),
-        price: Number(productForm.price),
-        available: productForm.available,
-        emoji: productForm.emoji,
-        gradient: productForm.gradient,
-        badge: productForm.badge || undefined,
-      };
-      if (editingProductId) {
-        await updateProduct({ id: editingProductId as Id<"products">, ...data });
-      } else {
-        await createProduct(data);
-      }
-      setShowProductForm(false);
-      setProductForm(EMPTY_PRODUCT);
-    } finally {
-      setProductLoading(false);
-    }
-  }
-
-  async function handleSeed() {
-    setSeedLoading(true);
-    try {
-      const result = await seedProducts({});
-      setSeedMsg(result.seeded ? `✅ Seeded ${result.count} products!` : "ℹ️ Already seeded.");
-      setTimeout(() => setSeedMsg(""), 3000);
-    } finally {
-      setSeedLoading(false);
-    }
-  }
-
-  if (!authed) {
-    return (
-      <main className="bg-[#081C15] min-h-screen flex items-center justify-center px-4">
-        <form onSubmit={handleLogin} className="w-full max-w-sm bg-white/5 border border-white/10 rounded-2xl p-8 space-y-6">
-          <div className="text-center"><span className="text-5xl block mb-3">🔐</span><h1 className="text-2xl font-extrabold text-white">Admin Access</h1><p className="text-gray-400 text-sm mt-1">Spot-On Order Management</p></div>
-          <div>
-            <label className="text-gray-400 text-sm mb-1.5 block">Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter admin password" className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-500 focus:outline-none focus:border-green-500" />
-          </div>
-          {authError && <p className="text-red-400 text-sm">{authError}</p>}
-          <button type="submit" className="w-full py-3 rounded-full bg-green-600 hover:bg-green-500 text-white font-bold transition-colors">Enter Dashboard</button>
-        </form>
-      </main>
-    );
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const selectedOrderData = orders?.find((o: any) => o._id === selectedOrder);
 
   return (
-    <main className="bg-[#081C15] min-h-screen">
-      {/* Topbar */}
-      <header className="bg-black/40 border-b border-white/10 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3"><span className="text-2xl">🍊</span><div><h1 className="text-white font-bold text-lg leading-none">Spot-On</h1><p className="text-gray-400 text-xs">Admin Dashboard</p></div></div>
-        <button onClick={() => { localStorage.removeItem("spoton-admin"); setAuthed(false); }} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/10 hover:bg-red-900/40 text-gray-300 text-sm transition-colors">
-          <LogOut className="w-4 h-4" /> Logout
-        </button>
-      </header>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-        {/* Stats */}
-        {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-            {[
-              { label: "Today's Orders", val: stats.total, color: "text-white" },
-              { label: "Pending", val: stats.pending, color: "text-yellow-400" },
-              { label: "In Progress", val: stats.active, color: "text-orange-400" },
-              { label: "Completed", val: stats.completed, color: "text-green-400" },
-              { label: "Today's Revenue", val: formatPrice(stats.revenue), color: "text-green-400" },
-            ].map((s) => (
-              <div key={s.label} className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
-                <p className={`text-2xl font-extrabold ${s.color}`}>{s.val}</p>
-                <p className="text-gray-400 text-xs mt-1">{s.label}</p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Tabs */}
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h2 className="text-white font-bold text-lg">Products ({products?.length??0})</h2>
         <div className="flex gap-2">
-          {[
-            { key: "orders", label: "Orders", icon: ShoppingBag },
-            { key: "products", label: "Products", icon: Package },
-          ].map(({ key, label, icon: Icon }) => (
-            <button key={key} onClick={() => setTab(key as "orders" | "products")}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all ${tab === key ? "bg-green-700 text-white" : "bg-white/10 text-gray-300 hover:bg-white/20"}`}>
-              <Icon className="w-4 h-4" /> {label}
-            </button>
-          ))}
+          {seedMsg&&<span className="text-green-400 text-sm self-center">{seedMsg}</span>}
+          <button onClick={async()=>{const r=await seedProducts({});setSeedMsg(r.seeded?`✅ Seeded ${r.count}!`:"ℹ️ Already seeded");setTimeout(()=>setSeedMsg(""),3000);}} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/10 text-gray-300 text-sm hover:bg-white/20"><RefreshCw className="w-4 h-4"/>Seed</button>
+          <button onClick={()=>{setEditId(null);setForm(EMPTY_PRODUCT);setShowForm(true);}} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-green-700 text-white text-sm font-bold hover:bg-green-600"><Plus className="w-4 h-4"/>Add</button>
         </div>
-
-        {/* ORDERS TAB */}
-        {tab === "orders" && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-white font-bold text-lg">All Orders</h2>
-                {orders === undefined && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
-              </div>
-              {orders?.length === 0 && <div className="text-center py-16 text-gray-500"><span className="text-4xl block mb-3">📭</span>No orders yet.</div>}
-              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              {orders?.map((order: any) => {
-                const S = STATUS_CONFIG[order.status as OrderStatus];
-                const Icon = S.icon;
-                const nextStatus = NEXT_STATUS[order.status as OrderStatus];
-                return (
-                  <div key={order._id} onClick={() => setSelectedOrder(order._id === selectedOrder ? null : order._id)}
-                    className={`bg-white/5 border rounded-xl p-4 cursor-pointer transition-all hover:bg-white/8 ${selectedOrder === order._id ? "border-green-500/50" : "border-white/10 hover:border-white/20"}`}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-white font-bold font-mono text-sm">{order.orderNumber}</span>
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${S.color}`}><Icon className="w-3 h-3" /> {S.label}</span>
-                        </div>
-                        <p className="text-gray-300 text-sm">{order.customerName} · {order.customerPhone}</p>
-                        <p className="text-gray-500 text-xs mt-0.5">{order.items.length} items · {formatPrice(order.subtotal)} · {order.deliveryType}</p>
-                      </div>
-                      <div className="flex flex-col items-end gap-2 shrink-0">
-                        <p className="text-gray-500 text-xs">{new Date(order.createdAt).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}</p>
-                        {nextStatus && (
-                          <button onClick={(e) => { e.stopPropagation(); handleOrderStatus(order._id, nextStatus); }} disabled={updatingOrder === order._id}
-                            className="px-3 py-1.5 rounded-full bg-green-700 hover:bg-green-600 text-white text-xs font-semibold transition-colors disabled:opacity-60">
-                            {updatingOrder === order._id ? <Loader2 className="w-3 h-3 animate-spin" /> : `→ ${STATUS_CONFIG[nextStatus].label}`}
-                          </button>
-                        )}
-                        {order.status === "pending" && (
-                          <button onClick={(e) => { e.stopPropagation(); handleOrderStatus(order._id, "cancelled"); }}
-                            className="px-3 py-1.5 rounded-full bg-red-900/40 hover:bg-red-800/60 text-red-400 text-xs font-semibold transition-colors">Cancel</button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div>
-              <h2 className="text-white font-bold text-lg mb-3">Order Detail</h2>
-              {!selectedOrderData ? (
-                <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center text-gray-500"><span className="text-3xl block mb-2">👆</span>Click an order to view</div>
-              ) : (
-                <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-4 sticky top-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-white font-bold font-mono">{selectedOrderData.orderNumber}</span>
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${STATUS_CONFIG[selectedOrderData.status as OrderStatus].color}`}>{STATUS_CONFIG[selectedOrderData.status as OrderStatus].label}</span>
-                  </div>
-                  <div className="text-sm space-y-1">
-                    <p><span className="text-gray-400">Customer:</span> <span className="text-white">{selectedOrderData.customerName}</span></p>
-                    <p><span className="text-gray-400">Phone:</span> <span className="text-white">{selectedOrderData.customerPhone}</span></p>
-                    <p><span className="text-gray-400">Method:</span> <span className="text-white capitalize">{selectedOrderData.deliveryType}</span></p>
-                    {selectedOrderData.deliveryAddress && <p><span className="text-gray-400">Address:</span> <span className="text-white">{selectedOrderData.deliveryAddress}</span></p>}
-                    {selectedOrderData.specialInstructions && <p><span className="text-gray-400">Note:</span> <span className="text-white">{selectedOrderData.specialInstructions}</span></p>}
-                  </div>
-                  <div className="border-t border-white/10 pt-3 space-y-1.5">
-                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                    {selectedOrderData.items.map((item: any, i: number) => (
-                      <div key={i} className="flex justify-between text-sm"><span className="text-gray-300">{item.emoji} {item.name} ×{item.quantity}</span><span className="text-white">{formatPrice(item.price * item.quantity)}</span></div>
-                    ))}
-                    <div className="flex justify-between font-bold pt-2 border-t border-white/10"><span className="text-white">Total</span><span className="text-green-400">{formatPrice(selectedOrderData.subtotal)}</span></div>
-                  </div>
-                  <div className="space-y-2 pt-2">
-                    {Object.entries(NEXT_STATUS).map(([from, to]) =>
-                      selectedOrderData.status === from ? (
-                        <button key={to} onClick={() => handleOrderStatus(selectedOrderData._id, to as OrderStatus)} disabled={updatingOrder === selectedOrderData._id}
-                          className="w-full py-2.5 rounded-full bg-green-700 hover:bg-green-600 text-white text-sm font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-                          {updatingOrder === selectedOrderData._id ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                          Mark as {STATUS_CONFIG[to as OrderStatus].label}
-                        </button>
-                      ) : null
-                    )}
-                    {selectedOrderData.status === "pending" && (
-                      <button onClick={() => handleOrderStatus(selectedOrderData._id, "cancelled")} className="w-full py-2.5 rounded-full bg-red-900/30 hover:bg-red-800/50 text-red-400 text-sm font-semibold transition-colors">Cancel Order</button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* PRODUCTS TAB */}
-        {tab === "products" && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <h2 className="text-white font-bold text-lg">Menu Products ({products?.length ?? 0})</h2>
-              <div className="flex items-center gap-3">
-                {seedMsg && <span className="text-sm text-green-400">{seedMsg}</span>}
-                <button onClick={handleSeed} disabled={seedLoading} className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 text-sm font-semibold transition-colors disabled:opacity-60">
-                  {seedLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Seed Defaults
-                </button>
-                <button onClick={openNewProduct} className="flex items-center gap-2 px-4 py-2 rounded-full bg-green-700 hover:bg-green-600 text-white text-sm font-bold transition-colors">
-                  <Plus className="w-4 h-4" /> Add Product
-                </button>
-              </div>
-            </div>
-
-            {products === undefined ? (
-              <div className="flex items-center gap-2 text-gray-400 py-8"><Loader2 className="w-5 h-5 animate-spin" /> Loading products...</div>
-            ) : products.length === 0 ? (
-              <div className="text-center py-16 text-gray-500">
-                <span className="text-4xl block mb-3">🌿</span>
-                <p>No products yet.</p>
-                <button onClick={handleSeed} className="mt-4 px-6 py-2 rounded-full bg-green-700 text-white text-sm font-semibold hover:bg-green-600 transition-colors">Seed Default Menu</button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {products.map((product) => (
-                  <div key={product._id} className={`bg-white/5 border rounded-xl overflow-hidden ${!product.available ? "opacity-50" : "border-white/10"}`}>
-                    <div className={`h-24 bg-gradient-to-br ${product.gradient} flex items-center justify-center text-4xl`}>{product.emoji}</div>
-                    <div className="p-3 space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-white font-semibold text-sm">{product.name}</p>
-                          <p className="text-gray-400 text-xs capitalize">{product.category} · {formatPrice(product.price)}</p>
-                        </div>
-                        <span className={`text-xs px-2 py-0.5 rounded-full border shrink-0 ${product.available ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-gray-500/20 text-gray-400 border-gray-500/30"}`}>
-                          {product.available ? "Live" : "Off"}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => toggleAvailable({ id: product._id as Id<"products">, available: !product.available })}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300 text-xs transition-colors">
-                          {product.available ? <ToggleRight className="w-4 h-4 text-green-400" /> : <ToggleLeft className="w-4 h-4" />}
-                          {product.available ? "Disable" : "Enable"}
-                        </button>
-                        <button onClick={() => openEditProduct(product)} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-blue-900/40 text-blue-400 text-xs transition-colors">
-                          <Pencil className="w-3 h-3" /> Edit
-                        </button>
-                        <button onClick={() => removeProduct({ id: product._id as Id<"products"> })} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-red-900/40 text-red-400 text-xs transition-colors">
-                          <Trash2 className="w-3 h-3" /> Del
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
-      {/* Product Form Modal */}
-      {showProductForm && (
+      {!products?<div className="flex items-center gap-2 text-gray-400 py-8"><Loader2 className="w-5 h-5 animate-spin"/>Loading...</div>:(
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {products.map(p=>{
+            const margin=p.costPrice?(((p.price-p.costPrice)/p.price)*100).toFixed(0):null;
+            return(
+              <div key={p._id} className={`bg-white/5 border rounded-xl overflow-hidden ${!p.available?"opacity-50":"border-white/10"}`}>
+                <div className={`h-20 bg-gradient-to-br ${p.gradient} flex items-center justify-center text-3xl`}>{p.emoji}</div>
+                <div className="p-3 space-y-1.5">
+                  <p className="text-white font-semibold text-sm truncate">{p.name}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-green-400 text-sm font-bold">{formatPrice(p.price)}</span>
+                    {margin&&<span className="text-xs text-purple-400">{margin}% margin</span>}
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <button onClick={()=>toggleAvailable({id:p._id,available:!p.available})} className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg text-xs transition-colors ${p.available?"bg-green-500/20 text-green-400":"bg-gray-500/20 text-gray-400"}`}>
+                      {p.available?<ToggleRight className="w-3 h-3"/>:<ToggleLeft className="w-3 h-3"/>}{p.available?"On":"Off"}
+                    </button>
+                    <button onClick={()=>{setEditId(p._id);setForm({name:p.name,category:p.category as any,description:p.description,ingredients:p.ingredients.join(", "),price:String(p.price),costPrice:String(p.costPrice||""),emoji:p.emoji,gradient:p.gradient,badge:p.badge??"",available:p.available});setShowForm(true);}} className="px-2 py-0.5 rounded-lg bg-white/10 text-blue-400 text-xs hover:bg-blue-900/30"><Pencil className="w-3 h-3 inline mr-0.5"/>Edit</button>
+                    <button onClick={()=>removeProduct({id:p._id})} className="px-2 py-0.5 rounded-lg bg-white/10 text-red-400 text-xs hover:bg-red-900/30"><Trash2 className="w-3 h-3 inline mr-0.5"/>Del</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showForm&&(
         <>
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50" onClick={() => setShowProductForm(false)} />
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50" onClick={()=>setShowForm(false)}/>
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <form onSubmit={handleProductSubmit} className="bg-[#0d1f17] border border-white/10 rounded-2xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto scrollbar-hide">
-              <h2 className="text-white font-bold text-xl">{editingProductId ? "Edit Product" : "Add New Product"}</h2>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="text-gray-400 text-xs mb-1 block">Name *</label>
-                  <input required value={productForm.name} onChange={(e) => setProductForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Tropical Twist" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500" />
-                </div>
-                <div>
-                  <label className="text-gray-400 text-xs mb-1 block">Category *</label>
-                  <select required value={productForm.category} onChange={(e) => setProductForm((f) => ({ ...f, category: e.target.value as ProductCategory }))} className="w-full px-3 py-2.5 rounded-xl bg-[#0a1a10] border border-white/20 text-white text-sm focus:outline-none focus:border-green-500">
-                    <option value="juice">🍊 Juice</option>
-                    <option value="smoothie">🥤 Smoothie</option>
-                    <option value="salad">🥗 Salad</option>
-                    <option value="sandwich">🥪 Sandwich</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-gray-400 text-xs mb-1 block">Price (₦) *</label>
-                  <input required type="number" value={productForm.price} onChange={(e) => setProductForm((f) => ({ ...f, price: e.target.value }))} placeholder="e.g. 2000" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500" />
-                </div>
-                <div>
-                  <label className="text-gray-400 text-xs mb-1 block">Emoji *</label>
-                  <input required value={productForm.emoji} onChange={(e) => setProductForm((f) => ({ ...f, emoji: e.target.value }))} placeholder="🍊" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500" />
-                </div>
-                <div>
-                  <label className="text-gray-400 text-xs mb-1 block">Badge (optional)</label>
-                  <input value={productForm.badge} onChange={(e) => setProductForm((f) => ({ ...f, badge: e.target.value }))} placeholder="e.g. Popular" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500" />
-                </div>
+            <form onSubmit={handleSubmit} className="bg-[#0d1f17] border border-white/10 rounded-2xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto scrollbar-hide">
+              <h2 className="text-white font-bold text-xl">{editId?"Edit Product":"Add Product"}</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2"><label className="text-gray-400 text-xs mb-1 block">Name *</label><input required value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Tropical Twist" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
+                <div><label className="text-gray-400 text-xs mb-1 block">Category</label><select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value as any}))} className="w-full px-3 py-2.5 rounded-xl bg-[#0a1a10] border border-white/20 text-white text-sm focus:outline-none focus:border-green-500"><option value="juice">🍊 Juice</option><option value="smoothie">🥤 Smoothie</option><option value="salad">🥗 Salad</option><option value="sandwich">🥪 Sandwich</option></select></div>
+                <div><label className="text-gray-400 text-xs mb-1 block">Emoji</label><input required value={form.emoji} onChange={e=>setForm(f=>({...f,emoji:e.target.value}))} placeholder="🍊" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
+                <div><label className="text-gray-400 text-xs mb-1 block">Price (₦) *</label><input required type="number" value={form.price} onChange={e=>setForm(f=>({...f,price:e.target.value}))} placeholder="2000" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
+                <div><label className="text-gray-400 text-xs mb-1 block">Cost Price (₦)</label><input type="number" value={form.costPrice} onChange={e=>setForm(f=>({...f,costPrice:e.target.value}))} placeholder="800" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
+                <div><label className="text-gray-400 text-xs mb-1 block">Badge</label><input value={form.badge} onChange={e=>setForm(f=>({...f,badge:e.target.value}))} placeholder="Popular" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
               </div>
-
-              <div>
-                <label className="text-gray-400 text-xs mb-1 block">Description *</label>
-                <textarea required value={productForm.description} onChange={(e) => setProductForm((f) => ({ ...f, description: e.target.value }))} placeholder="Short description of the item..." rows={2} className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500 resize-none" />
-              </div>
-
-              <div>
-                <label className="text-gray-400 text-xs mb-1 block">Ingredients (comma-separated) *</label>
-                <input required value={productForm.ingredients} onChange={(e) => setProductForm((f) => ({ ...f, ingredients: e.target.value }))} placeholder="Orange, Ginger, Lemon" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500" />
-              </div>
-
-              <div>
-                <label className="text-gray-400 text-xs mb-2 block">Card Gradient</label>
-                <div className="grid grid-cols-6 gap-2">
-                  {GRADIENTS.map((g) => (
-                    <button type="button" key={g} onClick={() => setProductForm((f) => ({ ...f, gradient: g }))}
-                      className={`h-8 rounded-lg bg-gradient-to-br ${g} border-2 transition-all ${productForm.gradient === g ? "border-white scale-110" : "border-transparent"}`} />
-                  ))}
-                </div>
-                <div className={`mt-2 h-12 rounded-xl bg-gradient-to-br ${productForm.gradient} flex items-center justify-center text-2xl`}>{productForm.emoji}</div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <label className="text-gray-400 text-sm">Available on menu</label>
-                <button type="button" onClick={() => setProductForm((f) => ({ ...f, available: !f.available }))}
-                  className={`w-12 h-6 rounded-full transition-all relative ${productForm.available ? "bg-green-600" : "bg-gray-600"}`}>
-                  <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all ${productForm.available ? "left-6" : "left-0.5"}`} />
-                </button>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowProductForm(false)} className="flex-1 py-3 rounded-full border border-white/20 text-gray-300 font-semibold hover:bg-white/10 transition-colors">Cancel</button>
-                <button type="submit" disabled={productLoading} className="flex-1 py-3 rounded-full bg-green-700 hover:bg-green-600 text-white font-bold transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-                  {productLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  {editingProductId ? "Save Changes" : "Add Product"}
+              <div><label className="text-gray-400 text-xs mb-1 block">Description *</label><textarea required value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} rows={2} className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500 resize-none"/></div>
+              <div><label className="text-gray-400 text-xs mb-1 block">Ingredients (comma-separated)</label><input required value={form.ingredients} onChange={e=>setForm(f=>({...f,ingredients:e.target.value}))} placeholder="Orange, Ginger, Lemon" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
+              <div><label className="text-gray-400 text-xs mb-2 block">Gradient</label><div className="grid grid-cols-6 gap-1.5">{GRADIENTS.map(g=><button type="button" key={g} onClick={()=>setForm(f=>({...f,gradient:g}))} className={`h-7 rounded-lg bg-gradient-to-br ${g} border-2 transition-all ${form.gradient===g?"border-white scale-110":"border-transparent"}`}/>)}</div><div className={`mt-2 h-10 rounded-xl bg-gradient-to-br ${form.gradient} flex items-center justify-center text-2xl`}>{form.emoji}</div></div>
+              <div className="flex items-center gap-3"><label className="text-gray-400 text-sm">Available</label><button type="button" onClick={()=>setForm(f=>({...f,available:!f.available}))} className={`w-12 h-6 rounded-full relative transition-all ${form.available?"bg-green-600":"bg-gray-600"}`}><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all ${form.available?"left-6":"left-0.5"}`}/></button></div>
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={()=>setShowForm(false)} className="flex-1 py-3 rounded-full border border-white/20 text-gray-300 font-semibold hover:bg-white/10">Cancel</button>
+                <button type="submit" disabled={loading} className="flex-1 py-3 rounded-full bg-green-700 hover:bg-green-600 text-white font-bold disabled:opacity-60 flex items-center justify-center gap-2">
+                  {loading&&<Loader2 className="w-4 h-4 animate-spin"/>}{editId?"Save":"Add Product"}
                 </button>
               </div>
             </form>
           </div>
         </>
       )}
-    </main>
+    </div>
+  );
+}
+
+// ── Expenses Tab ───────────────────────────────────────────────
+function ExpensesTab({ user }: { user: TeamMember }) {
+  const [date, setDate] = useState(today());
+  const expenses = useQuery(api.expenses.list, { date });
+  const createExpense = useMutation(api.expenses.create);
+  const removeExpense = useMutation(api.expenses.remove);
+  const orders = useQuery(api.orders.list);
+  const [form, setForm] = useState({category:"ingredients" as typeof EXPENSE_CATS[number],amount:"",note:""});
+  const [loading, setLoading] = useState(false);
+
+  const dayRevenue = (orders??[]).filter((o:any)=>new Date(o.createdAt).toISOString().split("T")[0]===date&&o.status!=="cancelled").reduce((s:number,o:any)=>s+(o.total??o.subtotal),0);
+  const dayExpenses = (expenses??[]).reduce((s,e)=>s+e.amount,0);
+  const netPosition = dayRevenue - dayExpenses;
+
+  async function handleAdd(e:React.FormEvent){
+    e.preventDefault(); setLoading(true);
+    try{await createExpense({date,category:form.category,amount:Number(form.amount),note:form.note||undefined,addedBy:user.name});setForm(f=>({...f,amount:"",note:""}));}
+    finally{setLoading(false);}
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-4 flex-wrap">
+        <h2 className="text-white font-bold text-lg">Expenses</h2>
+        <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500"/>
+      </div>
+
+      {/* Net position summary */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-green-900/30 border border-green-600/30 rounded-xl p-4 text-center">
+          <TrendingUp className="w-5 h-5 text-green-400 mx-auto mb-1"/>
+          <p className="text-green-400 font-bold text-lg">{formatPrice(dayRevenue)}</p>
+          <p className="text-gray-400 text-xs">Revenue</p>
+        </div>
+        <div className="bg-red-900/20 border border-red-500/20 rounded-xl p-4 text-center">
+          <TrendingDown className="w-5 h-5 text-red-400 mx-auto mb-1"/>
+          <p className="text-red-400 font-bold text-lg">{formatPrice(dayExpenses)}</p>
+          <p className="text-gray-400 text-xs">Expenses</p>
+        </div>
+        <div className={`border rounded-xl p-4 text-center ${netPosition>=0?"bg-green-900/20 border-green-500/20":"bg-red-900/20 border-red-500/20"}`}>
+          <p className={`font-bold text-lg ${netPosition>=0?"text-green-400":"text-red-400"}`}>{formatPrice(Math.abs(netPosition))}</p>
+          <p className="text-gray-400 text-xs">{netPosition>=0?"Net Profit":"Net Loss"}</p>
+        </div>
+      </div>
+
+      <form onSubmit={handleAdd} className="bg-white/5 border border-white/10 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
+        <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value as any}))} className="px-3 py-2.5 rounded-xl bg-[#0a1a10] border border-white/20 text-white text-sm capitalize focus:outline-none focus:border-green-500">
+          {EXPENSE_CATS.map(c=><option key={c} value={c} className="capitalize">{c}</option>)}
+        </select>
+        <input required type="number" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} placeholder="Amount (₦)" className="px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
+        <input value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))} placeholder="Note (optional)" className="px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
+        <button type="submit" disabled={loading} className="py-2.5 rounded-xl bg-green-700 hover:bg-green-600 text-white font-bold text-sm disabled:opacity-60 flex items-center justify-center gap-2">
+          {loading?<Loader2 className="w-4 h-4 animate-spin"/>:<Plus className="w-4 h-4"/>}Add
+        </button>
+      </form>
+
+      <div className="space-y-2">
+        {!expenses?<div className="flex items-center gap-2 text-gray-400"><Loader2 className="w-4 h-4 animate-spin"/>Loading...</div>:
+        expenses.length===0?<p className="text-gray-500 text-center py-8">No expenses logged for this date.</p>:
+        expenses.map(exp=>(
+          <div key={exp._id} className="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="px-2 py-0.5 rounded-full bg-white/10 text-gray-300 text-xs capitalize">{exp.category}</span>
+              {exp.note&&<span className="text-gray-400 text-sm">{exp.note}</span>}
+              {exp.addedBy&&<span className="text-gray-600 text-xs">by {exp.addedBy}</span>}
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-red-400 font-bold">{formatPrice(exp.amount)}</span>
+              <button onClick={()=>removeExpense({id:exp._id})} className="p-1 rounded-lg hover:bg-red-900/30 text-red-400"><Trash2 className="w-4 h-4"/></button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Team Tab ───────────────────────────────────────────────────
+function TeamTab() {
+  const members = useQuery(api.team.list);
+  const createMember = useMutation(api.team.create);
+  const updateMember = useMutation(api.team.update);
+  const removeMember = useMutation(api.team.remove);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({name:"",pin:"",role:"cashier" as Role});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleAdd(e:React.FormEvent){
+    e.preventDefault(); setLoading(true); setError("");
+    try{await createMember(form);setShowForm(false);setForm({name:"",pin:"",role:"cashier"});}
+    catch(err:any){setError(err.message||"Error creating member");}
+    finally{setLoading(false);}
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-white font-bold text-lg">Team Members</h2>
+        <button onClick={()=>setShowForm(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-green-700 text-white text-sm font-bold hover:bg-green-600"><Plus className="w-4 h-4"/>Add Member</button>
+      </div>
+      <p className="text-gray-400 text-sm">Each member logs in with their 4-digit PIN. <span className="text-yellow-400">Admin</span> has full access. <span className="text-blue-400">Cashier</span> can only use Quick Sale + Orders.</p>
+
+      {!members?<div className="flex items-center gap-2 text-gray-400"><Loader2 className="w-4 h-4 animate-spin"/>Loading...</div>:(
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {members.map(m=>(
+            <div key={m._id} className={`bg-white/5 border border-white/10 rounded-xl p-4 ${!m.active?"opacity-50":""}`}>
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="text-white font-bold">{m.name}</p>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${m.role==="admin"?"bg-yellow-500/20 text-yellow-400 border-yellow-500/30":"bg-blue-500/20 text-blue-400 border-blue-500/30"}`}>{m.role}</span>
+                </div>
+                <span className="text-gray-400 font-mono text-sm">PIN: {m.pin}</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={()=>updateMember({id:m._id,active:!m.active})} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${m.active?"bg-red-900/30 text-red-400":"bg-green-900/30 text-green-400"}`}>{m.active?"Deactivate":"Activate"}</button>
+                <button onClick={()=>removeMember({id:m._id})} className="px-3 py-1.5 rounded-lg bg-white/10 text-red-400 text-xs hover:bg-red-900/30"><Trash2 className="w-3 h-3"/></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showForm&&(
+        <>
+          <div className="fixed inset-0 bg-black/70 z-50" onClick={()=>setShowForm(false)}/>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <form onSubmit={handleAdd} className="bg-[#0d1f17] border border-white/10 rounded-2xl p-6 w-full max-w-sm space-y-4">
+              <h3 className="text-white font-bold text-lg">Add Team Member</h3>
+              <input required value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Full name" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
+              <input required value={form.pin} onChange={e=>setForm(f=>({...f,pin:e.target.value.slice(0,4)}))} placeholder="4-digit PIN" maxLength={4} pattern="\d{4}" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500 font-mono tracking-widest text-center text-xl"/>
+              <select value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value as Role}))} className="w-full px-3 py-2.5 rounded-xl bg-[#0a1a10] border border-white/20 text-white text-sm focus:outline-none focus:border-green-500">
+                <option value="cashier">Cashier (Quick Sale + Orders only)</option>
+                <option value="admin">Admin (Full access)</option>
+              </select>
+              {error&&<p className="text-red-400 text-sm">{error}</p>}
+              <div className="flex gap-3">
+                <button type="button" onClick={()=>setShowForm(false)} className="flex-1 py-3 rounded-full border border-white/20 text-gray-300 text-sm">Cancel</button>
+                <button type="submit" disabled={loading} className="flex-1 py-3 rounded-full bg-green-700 text-white text-sm font-bold disabled:opacity-60">Add</button>
+              </div>
+            </form>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Reports Tab ────────────────────────────────────────────────
+function ReportsTab() {
+  const [date, setDate] = useState(today());
+  const report = useQuery(api.orders.getEodReport, { date: new Date(date).toDateString() });
+  const expenses = useQuery(api.expenses.list, { date });
+
+  const totalExpenses = (expenses??[]).reduce((s,e)=>s+e.amount,0);
+  const netPosition = (report?.revenue??0) - totalExpenses;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-4 flex-wrap">
+        <h2 className="text-white font-bold text-lg">End-of-Day Report</h2>
+        <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500"/>
+        <button onClick={()=>window.print()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 text-gray-300 text-sm hover:bg-white/20"><Printer className="w-4 h-4"/>Print Report</button>
+      </div>
+
+      {!report?<div className="flex items-center gap-2 text-gray-400"><Loader2 className="w-4 h-4 animate-spin"/>Loading...</div>:(
+        <div className="space-y-4">
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              {label:"Total Orders",val:report.totalOrders,color:"text-white"},
+              {label:"Revenue",val:formatPrice(report.revenue),color:"text-green-400"},
+              {label:"Expenses",val:formatPrice(totalExpenses),color:"text-red-400"},
+              {label:netPosition>=0?"Net Profit":"Net Loss",val:formatPrice(Math.abs(netPosition)),color:netPosition>=0?"text-green-400":"text-red-400"},
+            ].map(s=>(
+              <div key={s.label} className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
+                <p className={`text-xl font-extrabold ${s.color}`}>{s.val}</p>
+                <p className="text-gray-400 text-xs mt-1">{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Payment breakdown */}
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="text-center"><p className="text-white font-bold">{formatPrice(report.cash)}</p><p className="text-gray-400 text-xs">Cash</p></div>
+            <div className="text-center"><p className="text-white font-bold">{formatPrice(report.transfer)}</p><p className="text-gray-400 text-xs">Transfer</p></div>
+            <div className="text-center"><p className="text-white font-bold">{report.webOrders}</p><p className="text-gray-400 text-xs">Web Orders</p></div>
+            <div className="text-center"><p className="text-white font-bold">{report.walkinOrders}</p><p className="text-gray-400 text-xs">Walk-ins</p></div>
+          </div>
+
+          {/* Expenses by category */}
+          {expenses&&expenses.length>0&&(
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+              <h3 className="text-white font-bold mb-3">Expenses Breakdown</h3>
+              <div className="space-y-2">
+                {Object.entries(expenses.reduce((acc,e)=>({...acc,[e.category]:(acc[e.category]??0)+e.amount}),{} as Record<string,number>)).map(([cat,amt])=>(
+                  <div key={cat} className="flex justify-between">
+                    <span className="text-gray-300 capitalize">{cat}</span>
+                    <span className="text-red-400 font-semibold">{formatPrice(amt)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="text-gray-500 text-xs text-center">Report for {date} · Generated {new Date().toLocaleString("en-NG")}</p>
+        </div>
+      )}
+    </div>
   );
 }
