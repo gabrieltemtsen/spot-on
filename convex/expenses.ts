@@ -22,11 +22,7 @@ export const listByRange = query({
 export const create = mutation({
   args: {
     date: v.string(),
-    category: v.union(
-      v.literal("ingredients"), v.literal("rent"), v.literal("transport"),
-      v.literal("packaging"), v.literal("staff"), v.literal("utilities"),
-      v.literal("marketing"), v.literal("misc")
-    ),
+    category: v.string(), // flexible — customisable via Settings
     amount: v.number(),
     note: v.optional(v.string()),
     addedBy: v.optional(v.string()),

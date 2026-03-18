@@ -2,19 +2,20 @@
 "use client";
 export const dynamic = "force-dynamic";
 import { useEffect, useState, useRef } from "react";
-import { useQuery, useMutation, useAction } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { formatPrice } from "@/lib/menu";
 import {
   Loader2, LogOut, Plus, Pencil, Trash2, ToggleLeft, ToggleRight,
   Package, ShoppingBag, DollarSign, Users, BarChart3, Zap, Printer,
   CheckCircle2, Clock, ChefHat, PackageCheck, Bike, XCircle, Truck,
-  Copy, Check, RefreshCw, X, TrendingUp, TrendingDown,
+  Copy, Check, RefreshCw, X, TrendingUp, TrendingDown, Settings,
+  ImagePlus, Search, Save, Tag, Building2, Receipt,
 } from "lucide-react";
 
 // ── types ──────────────────────────────────────────────────────
 type OrderStatus = "pending"|"confirmed"|"preparing"|"ready"|"dispatched"|"completed"|"cancelled";
-type TabId = "pos"|"orders"|"products"|"expenses"|"team"|"reports";
+type TabId = "pos"|"orders"|"products"|"expenses"|"team"|"reports"|"settings";
 type Role = "admin"|"cashier";
 
 interface TeamMember { _id: string; name: string; pin: string; role: Role; active: boolean }
@@ -31,7 +32,7 @@ const STATUS_CFG: Record<OrderStatus,{label:string;color:string;icon:React.Eleme
 const NEXT_STATUS: Partial<Record<OrderStatus,OrderStatus>> = {
   pending:"confirmed",confirmed:"preparing",preparing:"ready",ready:"dispatched",dispatched:"completed",
 };
-const EXPENSE_CATS = ["ingredients","rent","transport","packaging","staff","utilities","marketing","misc"] as const;
+const DEFAULT_EXPENSE_CATS = ["ingredients","rent","transport","packaging","staff","utilities","marketing","misc"];
 const GRADIENTS = [
   "from-orange-400 to-yellow-300","from-yellow-400 to-amber-300","from-red-400 to-pink-300",
   "from-orange-500 to-yellow-400","from-red-600 to-pink-500","from-amber-700 to-amber-500",
@@ -42,6 +43,23 @@ const GRADIENTS = [
 ];
 
 function today() { return new Date().toISOString().split("T")[0]; }
+
+// ── Shared: Product thumbnail ──────────────────────────────────
+function ProductThumb({ product, size = "md" }: { product: any; size?: "sm"|"md"|"lg" }) {
+  const h = size === "sm" ? "h-14" : size === "lg" ? "h-28" : "h-20";
+  if (product.imageUrl) {
+    return (
+      <div className={`${h} rounded-lg overflow-hidden`}>
+        <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+      </div>
+    );
+  }
+  return (
+    <div className={`${h} rounded-lg bg-gradient-to-br ${product.gradient} flex items-center justify-center`}>
+      <span className={size === "sm" ? "text-2xl" : size === "lg" ? "text-5xl" : "text-3xl"}>{product.emoji}</span>
+    </div>
+  );
+}
 
 // ── PIN Login ─────────────────────────────────────────────────
 function PinLogin({ onLogin }: { onLogin:(m:TeamMember)=>void }) {
@@ -88,9 +106,14 @@ function PinLogin({ onLogin }: { onLogin:(m:TeamMember)=>void }) {
 }
 
 // ── Receipt print helper ───────────────────────────────────────
-function printReceipt(order: any) {
+function printReceipt(order: any, settings?: Record<string,string>) {
   const w = window.open("","_blank","width=300,height=600");
   if (!w) return;
+  const bizName = settings?.businessName ?? "SPOT-ON";
+  const tagline = settings?.businessTagline ?? "Fresh Juices & Salads";
+  const footer  = settings?.receiptFooter  ?? "Thank you! Come again 🙏";
+  const address = settings?.businessAddress ?? "";
+  const phone   = settings?.businessPhone   ?? "";
   const items = order.items.map((i: any) => `<tr><td>${i.emoji} ${i.name} ×${i.quantity}</td><td style="text-align:right">₦${(i.price*i.quantity).toLocaleString()}</td></tr>`).join("");
   w.document.write(`<!DOCTYPE html><html><head><title>Receipt</title><style>
     body{font-family:monospace;font-size:12px;width:280px;margin:0 auto;padding:8px}
@@ -98,8 +121,10 @@ function printReceipt(order: any) {
     .center{text-align:center}.divider{border-top:1px dashed #000;margin:6px 0}
     table{width:100%}td{padding:2px 0}.total{font-weight:bold;font-size:14px}
   </style></head><body>
-    <h2>🍊 SPOT-ON</h2>
-    <p class="center">Fresh Juices & Salads</p>
+    <h2>🍊 ${bizName.toUpperCase()}</h2>
+    <p class="center">${tagline}</p>
+    ${address ? `<p class="center" style="font-size:10px">${address}</p>` : ""}
+    ${phone   ? `<p class="center" style="font-size:10px">📞 ${phone}</p>` : ""}
     <div class="divider"></div>
     <p><b>Order:</b> ${order.orderNumber}</p>
     <p><b>Date:</b> ${new Date(order.createdAt).toLocaleString("en-NG")}</p>
@@ -112,7 +137,7 @@ function printReceipt(order: any) {
     <p class="total" style="text-align:right">TOTAL: ₦${(order.total??order.subtotal).toLocaleString()}</p>
     ${order.paymentMethod ? `<p style="text-align:right">Paid: ${order.paymentMethod.toUpperCase()}</p>` : ""}
     <div class="divider"></div>
-    <p class="center">Thank you! Come again 🙏</p>
+    <p class="center">${footer}</p>
   </body></html>`);
   w.document.close();
   w.print();
@@ -122,6 +147,7 @@ function printReceipt(order: any) {
 export default function AdminPage() {
   const [user, setUser] = useState<TeamMember|null>(null);
   const [tab, setTab] = useState<TabId>("pos");
+  const siteSettings = useQuery(api.settings.getAll, {});
 
   useEffect(() => {
     const saved = localStorage.getItem("spoton-user");
@@ -131,7 +157,7 @@ export default function AdminPage() {
   function handleLogin(m: TeamMember) {
     setUser(m);
     localStorage.setItem("spoton-user", JSON.stringify(m));
-    setTab(m.role === "cashier" ? "pos" : "pos");
+    setTab("pos");
   }
 
   function handleLogout() {
@@ -143,18 +169,21 @@ export default function AdminPage() {
 
   const isAdmin = user.role === "admin";
   const tabs: {id:TabId;label:string;icon:React.ElementType;adminOnly?:boolean}[] = [
-    {id:"pos",    label:"Quick Sale", icon:Zap},
-    {id:"orders", label:"Orders",     icon:ShoppingBag},
-    {id:"products",label:"Products",  icon:Package, adminOnly:true},
-    {id:"expenses",label:"Expenses",  icon:DollarSign, adminOnly:true},
-    {id:"team",   label:"Team",       icon:Users, adminOnly:true},
-    {id:"reports",label:"Reports",    icon:BarChart3, adminOnly:true},
+    {id:"pos",      label:"Quick Sale", icon:Zap},
+    {id:"orders",   label:"Orders",     icon:ShoppingBag},
+    {id:"products", label:"Products",   icon:Package,    adminOnly:true},
+    {id:"expenses", label:"Expenses",   icon:DollarSign, adminOnly:true},
+    {id:"team",     label:"Team",       icon:Users,      adminOnly:true},
+    {id:"reports",  label:"Reports",    icon:BarChart3,  adminOnly:true},
+    {id:"settings", label:"Settings",   icon:Settings,   adminOnly:true},
   ].filter(t => !t.adminOnly || isAdmin);
+
+  const bizName = siteSettings?.businessName ?? "Spot-On";
 
   return (
     <main className="bg-[#081C15] min-h-screen">
       <header className="bg-black/40 border-b border-white/10 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2"><span className="text-xl">🍊</span><span className="text-white font-bold">Spot-On</span></div>
+        <div className="flex items-center gap-2"><span className="text-xl">🍊</span><span className="text-white font-bold">{bizName}</span></div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400 hidden sm:block">{user.name} · {user.role}</span>
           <button onClick={handleLogout} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-white/10 hover:bg-red-900/40 text-gray-300 text-sm transition-colors">
@@ -174,37 +203,43 @@ export default function AdminPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
-        {tab==="pos"     && <PosTab user={user} />}
-        {tab==="orders"  && <OrdersTab user={user} />}
-        {tab==="products"&& <ProductsTab />}
-        {tab==="expenses"&& <ExpensesTab user={user} />}
-        {tab==="team"    && <TeamTab />}
-        {tab==="reports" && <ReportsTab />}
+        {tab==="pos"      && <PosTab user={user} settings={siteSettings} />}
+        {tab==="orders"   && <OrdersTab user={user} settings={siteSettings} />}
+        {tab==="products" && <ProductsTab />}
+        {tab==="expenses" && <ExpensesTab user={user} settings={siteSettings} />}
+        {tab==="team"     && <TeamTab />}
+        {tab==="reports"  && <ReportsTab settings={siteSettings} />}
+        {tab==="settings" && <SettingsTab />}
       </div>
     </main>
   );
 }
 
 // ── POS Quick Sale Tab ─────────────────────────────────────────
-function PosTab({ user }: { user: TeamMember }) {
+function PosTab({ user, settings }: { user: TeamMember; settings?: Record<string,string> }) {
   const products = useQuery(api.products.list, {});
   const createOrder = useMutation(api.orders.create);
-  const [cart, setCart] = useState<{id:string;name:string;emoji:string;price:number;qty:number}[]>([]);
+  const [cart, setCart] = useState<{id:string;name:string;emoji:string;imageUrl?:string|null;price:number;qty:number}[]>([]);
   const [customerName, setCustomerName] = useState("Walk-in");
   const [paymentMethod, setPaymentMethod] = useState<"cash"|"transfer"|"card">("cash");
   const [loading, setLoading] = useState(false);
   const [lastOrder, setLastOrder] = useState<any>(null);
   const [catFilter, setCatFilter] = useState("all");
+  const [search, setSearch] = useState("");
 
   const cats = ["all","juice","smoothie","salad","sandwich"];
-  const filtered = (products??[]).filter(p=>p.available&&(catFilter==="all"||p.category===catFilter));
+  const filtered = (products??[]).filter(p => {
+    const matchesCat = catFilter === "all" || p.category === catFilter;
+    const matchesSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());
+    return p.available && matchesCat && matchesSearch;
+  });
   const subtotal = cart.reduce((s,i)=>s+i.price*i.qty,0);
 
   function addToCart(p: any) {
     setCart(c=>{
       const ex = c.find(i=>i.id===p._id);
       if(ex) return c.map(i=>i.id===p._id?{...i,qty:i.qty+1}:i);
-      return [...c,{id:p._id,name:p.name,emoji:p.emoji,price:p.price,qty:1}];
+      return [...c,{id:p._id,name:p.name,emoji:p.emoji,imageUrl:p.imageUrl,price:p.price,qty:1}];
     });
   }
 
@@ -235,6 +270,13 @@ function PosTab({ user }: { user: TeamMember }) {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Product grid */}
       <div className="lg:col-span-2 space-y-4">
+        {/* Search + category filters */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search products..."
+            className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
+          {search && <button onClick={()=>setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"><X className="w-4 h-4"/></button>}
+        </div>
         <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
           {cats.map(c=>(
             <button key={c} onClick={()=>setCatFilter(c)}
@@ -245,6 +287,11 @@ function PosTab({ user }: { user: TeamMember }) {
         </div>
         {!products ? (
           <div className="flex items-center gap-2 text-gray-400 py-8"><Loader2 className="w-5 h-5 animate-spin"/>Loading menu...</div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-12 text-gray-500">
+            <Search className="w-8 h-8 mx-auto mb-2 opacity-40"/>
+            <p>No products found</p>
+          </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {filtered.map(p=>{
@@ -252,8 +299,8 @@ function PosTab({ user }: { user: TeamMember }) {
               return (
                 <button key={p._id} onClick={()=>addToCart(p)}
                   className={`relative p-3 rounded-xl border text-left transition-all active:scale-95 hover:border-green-500/50 ${inCart?"border-green-500/50 bg-green-900/20":"border-white/10 bg-white/5"}`}>
-                  <div className={`h-16 rounded-lg bg-gradient-to-br ${p.gradient} flex items-center justify-center text-3xl mb-2`}>{p.emoji}</div>
-                  <p className="text-white text-xs font-semibold leading-tight truncate">{p.name}</p>
+                  <ProductThumb product={p} size="md" />
+                  <p className="text-white text-xs font-semibold leading-tight truncate mt-2">{p.name}</p>
                   <p className="text-green-400 text-sm font-bold mt-0.5">{formatPrice(p.price)}</p>
                   {inCart && <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-green-600 text-white text-xs font-bold flex items-center justify-center">{inCart.qty}</span>}
                 </button>
@@ -271,7 +318,7 @@ function PosTab({ user }: { user: TeamMember }) {
               <p className="text-green-400 font-bold text-sm">✅ Sale recorded!</p>
               <button onClick={()=>setLastOrder(null)}><X className="w-4 h-4 text-gray-400"/></button>
             </div>
-            <button onClick={()=>printReceipt(lastOrder)} className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-semibold transition-colors">
+            <button onClick={()=>printReceipt(lastOrder, settings)} className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-semibold transition-colors">
               <Printer className="w-4 h-4"/> Print Receipt
             </button>
           </div>
@@ -328,7 +375,7 @@ function PosTab({ user }: { user: TeamMember }) {
 }
 
 // ── Orders Tab ─────────────────────────────────────────────────
-function OrdersTab({ user }: { user: TeamMember }) {
+function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<string,string> }) {
   const orders = useQuery(api.orders.list);
   const stats = useQuery(api.orders.getStats);
   const updateStatus = useMutation(api.orders.updateStatus);
@@ -447,7 +494,7 @@ function OrdersTab({ user }: { user: TeamMember }) {
                   </button>
                 ):null)}
                 {selectedData.status==="pending"&&<button onClick={()=>handleStatus(selectedData._id,"cancelled")} className="w-full py-2 rounded-full bg-red-900/30 text-red-400 text-sm font-semibold hover:bg-red-800/40">Cancel</button>}
-                <button onClick={()=>printReceipt(selectedData)} className="w-full py-2 rounded-full bg-white/10 text-white text-sm font-semibold hover:bg-white/20 flex items-center justify-center gap-2">
+                <button onClick={()=>printReceipt(selectedData, settings)} className="w-full py-2 rounded-full bg-white/10 text-white text-sm font-semibold hover:bg-white/20 flex items-center justify-center gap-2">
                   <Printer className="w-4 h-4"/> Print Receipt
                 </button>
                 {selectedData.deliveryType==="delivery"&&(
@@ -489,51 +536,150 @@ function OrdersTab({ user }: { user: TeamMember }) {
 }
 
 // ── Products Tab ───────────────────────────────────────────────
-const EMPTY_PRODUCT = {name:"",category:"juice" as const,description:"",ingredients:"",price:"",costPrice:"",emoji:"🍊",gradient:"from-orange-400 to-yellow-300",badge:"",available:true};
+const EMPTY_PRODUCT = {
+  name:"",category:"juice" as const,description:"",ingredients:"",
+  price:"",costPrice:"",emoji:"🍊",gradient:"from-orange-400 to-yellow-300",
+  badge:"",available:true,imageStorageId:"" as string|undefined,
+};
 
 function ProductsTab() {
   const products = useQuery(api.products.list, {});
   const createProduct = useMutation(api.products.create);
   const updateProduct = useMutation(api.products.update);
   const removeProduct = useMutation(api.products.remove);
+  const removeImage   = useMutation(api.products.removeImage);
   const toggleAvailable = useMutation(api.products.toggleAvailable);
-  const seedProducts = useMutation(api.products.seed);
+  const seedProducts  = useMutation(api.products.seed);
+  const generateUploadUrl = useMutation(api.products.generateUploadUrl);
+  const updateImage   = useMutation(api.products.updateImage);
+
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string|null>(null);
   const [form, setForm] = useState(EMPTY_PRODUCT);
+  const [imageFile, setImageFile] = useState<File|null>(null);
+  const [imagePreview, setImagePreview] = useState<string|null>(null);
   const [loading, setLoading] = useState(false);
   const [seedMsg, setSeedMsg] = useState("");
+  const [catFilter, setCatFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const cats = ["all","juice","smoothie","salad","sandwich"];
+  const filtered = (products??[]).filter(p => {
+    const matchesCat = catFilter === "all" || p.category === catFilter;
+    const matchesSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());
+    return matchesCat && matchesSearch;
+  });
+
+  function openEdit(p: any) {
+    setEditId(p._id);
+    setForm({
+      name:p.name,category:p.category,description:p.description,
+      ingredients:p.ingredients.join(", "),price:String(p.price),
+      costPrice:String(p.costPrice||""),emoji:p.emoji,gradient:p.gradient,
+      badge:p.badge??"",available:p.available,imageStorageId:p.imageStorageId,
+    });
+    setImageFile(null);
+    setImagePreview(p.imageUrl || null);
+    setShowForm(true);
+  }
+
+  function openAdd() {
+    setEditId(null);
+    setForm(EMPTY_PRODUCT);
+    setImageFile(null);
+    setImagePreview(null);
+    setShowForm(true);
+  }
 
   async function handleSubmit(e:React.FormEvent){
     e.preventDefault(); setLoading(true);
     try{
-      const data={name:form.name,category:form.category,description:form.description,ingredients:form.ingredients.split(",").map(s=>s.trim()).filter(Boolean),price:Number(form.price),costPrice:form.costPrice?Number(form.costPrice):undefined,available:form.available,emoji:form.emoji,gradient:form.gradient,badge:form.badge||undefined};
+      let imageStorageId = form.imageStorageId;
+
+      // Upload new image if selected
+      if (imageFile) {
+        const uploadUrl = await generateUploadUrl({});
+        const res = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": imageFile.type },
+          body: imageFile,
+        });
+        const { storageId } = await res.json();
+        imageStorageId = storageId;
+      }
+
+      const data = {
+        name:form.name,category:form.category,description:form.description,
+        ingredients:form.ingredients.split(",").map(s=>s.trim()).filter(Boolean),
+        price:Number(form.price),
+        costPrice:form.costPrice?Number(form.costPrice):undefined,
+        available:form.available,emoji:form.emoji,gradient:form.gradient,
+        badge:form.badge||undefined,
+        imageStorageId: imageStorageId || undefined,
+      };
       if(editId) await updateProduct({id:editId,...data});
       else await createProduct(data);
-      setShowForm(false); setForm(EMPTY_PRODUCT);
+      setShowForm(false); setForm(EMPTY_PRODUCT); setImageFile(null); setImagePreview(null);
     }finally{setLoading(false);}
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Validate size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) { alert("Image must be under 5MB"); return; }
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-white font-bold text-lg">Products ({products?.length??0})</h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {seedMsg&&<span className="text-green-400 text-sm self-center">{seedMsg}</span>}
           <button onClick={async()=>{const r=await seedProducts({});setSeedMsg(r.seeded?`✅ Seeded ${r.count}!`:"ℹ️ Already seeded");setTimeout(()=>setSeedMsg(""),3000);}} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/10 text-gray-300 text-sm hover:bg-white/20"><RefreshCw className="w-4 h-4"/>Seed</button>
-          <button onClick={()=>{setEditId(null);setForm(EMPTY_PRODUCT);setShowForm(true);}} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-green-700 text-white text-sm font-bold hover:bg-green-600"><Plus className="w-4 h-4"/>Add</button>
+          <button onClick={openAdd} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-green-700 text-white text-sm font-bold hover:bg-green-600"><Plus className="w-4 h-4"/>Add Product</button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search products..."
+            className="w-full pl-9 pr-4 py-2 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
+        </div>
+        <div className="flex gap-1 overflow-x-auto scrollbar-hide">
+          {cats.map(c=>(
+            <button key={c} onClick={()=>setCatFilter(c)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap capitalize ${catFilter===c?"bg-green-700 text-white":"bg-white/10 text-gray-300 hover:bg-white/20"}`}>
+              {c}
+            </button>
+          ))}
         </div>
       </div>
 
       {!products?<div className="flex items-center gap-2 text-gray-400 py-8"><Loader2 className="w-5 h-5 animate-spin"/>Loading...</div>:(
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {products.map(p=>{
+          {filtered.map(p=>{
             const margin=p.costPrice?(((p.price-p.costPrice)/p.price)*100).toFixed(0):null;
             return(
               <div key={p._id} className={`bg-white/5 border rounded-xl overflow-hidden ${!p.available?"opacity-50":"border-white/10"}`}>
-                <div className={`h-20 bg-gradient-to-br ${p.gradient} flex items-center justify-center text-3xl`}>{p.emoji}</div>
+                <div className="relative">
+                  <ProductThumb product={p} size="lg" />
+                  {p.badge&&<span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 text-yellow-300 text-xs font-semibold">{p.badge}</span>}
+                  {p.imageStorageId&&(
+                    <button onClick={()=>removeImage({id:p._id})} title="Remove image"
+                      className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center text-red-400 hover:bg-red-900/60 transition-colors">
+                      <X className="w-3 h-3"/>
+                    </button>
+                  )}
+                </div>
                 <div className="p-3 space-y-1.5">
                   <p className="text-white font-semibold text-sm truncate">{p.name}</p>
+                  <p className="text-gray-500 text-xs capitalize">{p.category}</p>
                   <div className="flex items-center gap-2">
                     <span className="text-green-400 text-sm font-bold">{formatPrice(p.price)}</span>
                     {margin&&<span className="text-xs text-purple-400">{margin}% margin</span>}
@@ -542,7 +688,7 @@ function ProductsTab() {
                     <button onClick={()=>toggleAvailable({id:p._id,available:!p.available})} className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg text-xs transition-colors ${p.available?"bg-green-500/20 text-green-400":"bg-gray-500/20 text-gray-400"}`}>
                       {p.available?<ToggleRight className="w-3 h-3"/>:<ToggleLeft className="w-3 h-3"/>}{p.available?"On":"Off"}
                     </button>
-                    <button onClick={()=>{setEditId(p._id);setForm({name:p.name,category:p.category as any,description:p.description,ingredients:p.ingredients.join(", "),price:String(p.price),costPrice:String(p.costPrice||""),emoji:p.emoji,gradient:p.gradient,badge:p.badge??"",available:p.available});setShowForm(true);}} className="px-2 py-0.5 rounded-lg bg-white/10 text-blue-400 text-xs hover:bg-blue-900/30"><Pencil className="w-3 h-3 inline mr-0.5"/>Edit</button>
+                    <button onClick={()=>openEdit(p)} className="px-2 py-0.5 rounded-lg bg-white/10 text-blue-400 text-xs hover:bg-blue-900/30"><Pencil className="w-3 h-3 inline mr-0.5"/>Edit</button>
                     <button onClick={()=>removeProduct({id:p._id})} className="px-2 py-0.5 rounded-lg bg-white/10 text-red-400 text-xs hover:bg-red-900/30"><Trash2 className="w-3 h-3 inline mr-0.5"/>Del</button>
                   </div>
                 </div>
@@ -558,22 +704,49 @@ function ProductsTab() {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <form onSubmit={handleSubmit} className="bg-[#0d1f17] border border-white/10 rounded-2xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto scrollbar-hide">
               <h2 className="text-white font-bold text-xl">{editId?"Edit Product":"Add Product"}</h2>
+
+              {/* Image upload */}
+              <div>
+                <label className="text-gray-400 text-xs mb-2 block">Product Image (optional)</label>
+                {imagePreview ? (
+                  <div className="relative">
+                    <img src={imagePreview} alt="Preview" className="w-full h-36 object-cover rounded-xl"/>
+                    <button type="button" onClick={()=>{setImageFile(null);setImagePreview(null);setForm(f=>({...f,imageStorageId:""}));if(fileInputRef.current)fileInputRef.current.value="";}}
+                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 flex items-center justify-center text-white hover:bg-red-900/80">
+                      <X className="w-4 h-4"/>
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={()=>fileInputRef.current?.click()}
+                    className="w-full h-28 border-2 border-dashed border-white/20 rounded-xl flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-green-500/50 hover:text-green-400 transition-all">
+                    <ImagePlus className="w-6 h-6"/>
+                    <span className="text-xs">Click to upload image</span>
+                    <span className="text-xs text-gray-600">JPG, PNG, WebP · Max 5MB</span>
+                  </button>
+                )}
+                <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleFileChange} className="hidden"/>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2"><label className="text-gray-400 text-xs mb-1 block">Name *</label><input required value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Tropical Twist" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
                 <div><label className="text-gray-400 text-xs mb-1 block">Category</label><select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value as any}))} className="w-full px-3 py-2.5 rounded-xl bg-[#0a1a10] border border-white/20 text-white text-sm focus:outline-none focus:border-green-500"><option value="juice">🍊 Juice</option><option value="smoothie">🥤 Smoothie</option><option value="salad">🥗 Salad</option><option value="sandwich">🥪 Sandwich</option></select></div>
-                <div><label className="text-gray-400 text-xs mb-1 block">Emoji</label><input required value={form.emoji} onChange={e=>setForm(f=>({...f,emoji:e.target.value}))} placeholder="🍊" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
+                <div><label className="text-gray-400 text-xs mb-1 block">Emoji (fallback)</label><input required value={form.emoji} onChange={e=>setForm(f=>({...f,emoji:e.target.value}))} placeholder="🍊" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
                 <div><label className="text-gray-400 text-xs mb-1 block">Price (₦) *</label><input required type="number" value={form.price} onChange={e=>setForm(f=>({...f,price:e.target.value}))} placeholder="2000" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
                 <div><label className="text-gray-400 text-xs mb-1 block">Cost Price (₦)</label><input type="number" value={form.costPrice} onChange={e=>setForm(f=>({...f,costPrice:e.target.value}))} placeholder="800" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
                 <div><label className="text-gray-400 text-xs mb-1 block">Badge</label><input value={form.badge} onChange={e=>setForm(f=>({...f,badge:e.target.value}))} placeholder="Popular" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
               </div>
               <div><label className="text-gray-400 text-xs mb-1 block">Description *</label><textarea required value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} rows={2} className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500 resize-none"/></div>
               <div><label className="text-gray-400 text-xs mb-1 block">Ingredients (comma-separated)</label><input required value={form.ingredients} onChange={e=>setForm(f=>({...f,ingredients:e.target.value}))} placeholder="Orange, Ginger, Lemon" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/></div>
-              <div><label className="text-gray-400 text-xs mb-2 block">Gradient</label><div className="grid grid-cols-6 gap-1.5">{GRADIENTS.map(g=><button type="button" key={g} onClick={()=>setForm(f=>({...f,gradient:g}))} className={`h-7 rounded-lg bg-gradient-to-br ${g} border-2 transition-all ${form.gradient===g?"border-white scale-110":"border-transparent"}`}/>)}</div><div className={`mt-2 h-10 rounded-xl bg-gradient-to-br ${form.gradient} flex items-center justify-center text-2xl`}>{form.emoji}</div></div>
+              <div>
+                <label className="text-gray-400 text-xs mb-2 block">Gradient (shown if no image)</label>
+                <div className="grid grid-cols-6 gap-1.5">{GRADIENTS.map(g=><button type="button" key={g} onClick={()=>setForm(f=>({...f,gradient:g}))} className={`h-7 rounded-lg bg-gradient-to-br ${g} border-2 transition-all ${form.gradient===g?"border-white scale-110":"border-transparent"}`}/>)}</div>
+                {!imagePreview&&<div className={`mt-2 h-10 rounded-xl bg-gradient-to-br ${form.gradient} flex items-center justify-center text-2xl`}>{form.emoji}</div>}
+              </div>
               <div className="flex items-center gap-3"><label className="text-gray-400 text-sm">Available</label><button type="button" onClick={()=>setForm(f=>({...f,available:!f.available}))} className={`w-12 h-6 rounded-full relative transition-all ${form.available?"bg-green-600":"bg-gray-600"}`}><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all ${form.available?"left-6":"left-0.5"}`}/></button></div>
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={()=>setShowForm(false)} className="flex-1 py-3 rounded-full border border-white/20 text-gray-300 font-semibold hover:bg-white/10">Cancel</button>
                 <button type="submit" disabled={loading} className="flex-1 py-3 rounded-full bg-green-700 hover:bg-green-600 text-white font-bold disabled:opacity-60 flex items-center justify-center gap-2">
-                  {loading&&<Loader2 className="w-4 h-4 animate-spin"/>}{editId?"Save":"Add Product"}
+                  {loading&&<Loader2 className="w-4 h-4 animate-spin"/>}{editId?"Save Changes":"Add Product"}
                 </button>
               </div>
             </form>
@@ -585,14 +758,31 @@ function ProductsTab() {
 }
 
 // ── Expenses Tab ───────────────────────────────────────────────
-function ExpensesTab({ user }: { user: TeamMember }) {
+function ExpensesTab({ user, settings }: { user: TeamMember; settings?: Record<string,string> }) {
   const [date, setDate] = useState(today());
   const expenses = useQuery(api.expenses.list, { date });
   const createExpense = useMutation(api.expenses.create);
   const removeExpense = useMutation(api.expenses.remove);
   const orders = useQuery(api.orders.list);
-  const [form, setForm] = useState({category:"ingredients" as typeof EXPENSE_CATS[number],amount:"",note:""});
+
+  // Load expense categories from settings (with fallback)
+  const expenseCats: string[] = (() => {
+    try {
+      if (settings?.expenseCategories) return JSON.parse(settings.expenseCategories);
+    } catch { /**/ }
+    return DEFAULT_EXPENSE_CATS;
+  })();
+
+  const [form, setForm] = useState({category: expenseCats[0] ?? "ingredients", amount:"", note:""});
   const [loading, setLoading] = useState(false);
+
+  // Update form category if cats change
+  useEffect(() => {
+    if (expenseCats.length > 0 && !expenseCats.includes(form.category)) {
+      setForm(f => ({...f, category: expenseCats[0]}));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings?.expenseCategories]);
 
   const dayRevenue = (orders??[]).filter((o:any)=>new Date(o.createdAt).toISOString().split("T")[0]===date&&o.status!=="cancelled").reduce((s:number,o:any)=>s+(o.total??o.subtotal),0);
   const dayExpenses = (expenses??[]).reduce((s,e)=>s+e.amount,0);
@@ -600,7 +790,7 @@ function ExpensesTab({ user }: { user: TeamMember }) {
 
   async function handleAdd(e:React.FormEvent){
     e.preventDefault(); setLoading(true);
-    try{await createExpense({date,category:form.category,amount:Number(form.amount),note:form.note||undefined,addedBy:user.name});setForm(f=>({...f,amount:"",note:""}));}
+    try{await createExpense({date,category:form.category as any,amount:Number(form.amount),note:form.note||undefined,addedBy:user.name});setForm(f=>({...f,amount:"",note:""}));}
     finally{setLoading(false);}
   }
 
@@ -630,8 +820,8 @@ function ExpensesTab({ user }: { user: TeamMember }) {
       </div>
 
       <form onSubmit={handleAdd} className="bg-white/5 border border-white/10 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
-        <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value as any}))} className="px-3 py-2.5 rounded-xl bg-[#0a1a10] border border-white/20 text-white text-sm capitalize focus:outline-none focus:border-green-500">
-          {EXPENSE_CATS.map(c=><option key={c} value={c} className="capitalize">{c}</option>)}
+        <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} className="px-3 py-2.5 rounded-xl bg-[#0a1a10] border border-white/20 text-white text-sm capitalize focus:outline-none focus:border-green-500">
+          {expenseCats.map(c=><option key={c} value={c} className="capitalize">{c}</option>)}
         </select>
         <input required type="number" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} placeholder="Amount (₦)" className="px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
         <input value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))} placeholder="Note (optional)" className="px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
@@ -671,6 +861,7 @@ function TeamTab() {
   const [form, setForm] = useState({name:"",pin:"",role:"cashier" as Role});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [revealPins, setRevealPins] = useState(false);
 
   async function handleAdd(e:React.FormEvent){
     e.preventDefault(); setLoading(true); setError("");
@@ -681,9 +872,14 @@ function TeamTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-white font-bold text-lg">Team Members</h2>
-        <button onClick={()=>setShowForm(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-green-700 text-white text-sm font-bold hover:bg-green-600"><Plus className="w-4 h-4"/>Add Member</button>
+        <div className="flex gap-2">
+          <button onClick={()=>setRevealPins(r=>!r)} className={`flex items-center gap-1.5 px-3 py-2 rounded-full text-sm transition-colors ${revealPins?"bg-yellow-700/40 text-yellow-300":"bg-white/10 text-gray-400"}`}>
+            {revealPins ? "🙈 Hide PINs" : "👁 Show PINs"}
+          </button>
+          <button onClick={()=>setShowForm(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-green-700 text-white text-sm font-bold hover:bg-green-600"><Plus className="w-4 h-4"/>Add Member</button>
+        </div>
       </div>
       <p className="text-gray-400 text-sm">Each member logs in with their 4-digit PIN. <span className="text-yellow-400">Admin</span> has full access. <span className="text-blue-400">Cashier</span> can only use Quick Sale + Orders.</p>
 
@@ -696,7 +892,9 @@ function TeamTab() {
                   <p className="text-white font-bold">{m.name}</p>
                   <span className={`text-xs px-2 py-0.5 rounded-full border ${m.role==="admin"?"bg-yellow-500/20 text-yellow-400 border-yellow-500/30":"bg-blue-500/20 text-blue-400 border-blue-500/30"}`}>{m.role}</span>
                 </div>
-                <span className="text-gray-400 font-mono text-sm">PIN: {m.pin}</span>
+                <span className="text-gray-400 font-mono text-sm">
+                  {revealPins ? `PIN: ${m.pin}` : "PIN: ••••"}
+                </span>
               </div>
               <div className="flex gap-2">
                 <button onClick={()=>updateMember({id:m._id,active:!m.active})} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold ${m.active?"bg-red-900/30 text-red-400":"bg-green-900/30 text-green-400"}`}>{m.active?"Deactivate":"Activate"}</button>
@@ -733,7 +931,7 @@ function TeamTab() {
 }
 
 // ── Reports Tab ────────────────────────────────────────────────
-function ReportsTab() {
+function ReportsTab({ settings }: { settings?: Record<string,string> }) {
   const [date, setDate] = useState(today());
   const report = useQuery(api.orders.getEodReport, { date: new Date(date).toDateString() });
   const expenses = useQuery(api.expenses.list, { date });
@@ -792,6 +990,170 @@ function ReportsTab() {
           <p className="text-gray-500 text-xs text-center">Report for {date} · Generated {new Date().toLocaleString("en-NG")}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Settings Tab ───────────────────────────────────────────────
+function SettingsTab() {
+  const siteSettings = useQuery(api.settings.getAll, {});
+  const setSetting   = useMutation(api.settings.setBulk);
+
+  // Business info
+  const [bizForm, setBizForm] = useState({ businessName:"", businessTagline:"", businessAddress:"", businessPhone:"", receiptFooter:"", defaultDeliveryFee:"" });
+  const [bizSaving, setBizSaving] = useState(false);
+  const [bizSaved, setBizSaved] = useState(false);
+
+  // Expense categories
+  const [expCats, setExpCats] = useState<string[]>([]);
+  const [newCat, setNewCat] = useState("");
+  const [catSaving, setCatSaving] = useState(false);
+  const [catSaved, setCatSaved] = useState(false);
+
+  // Load settings into form when data arrives
+  useEffect(() => {
+    if (!siteSettings) return;
+    setBizForm({
+      businessName:      siteSettings.businessName      ?? "Spot-On",
+      businessTagline:   siteSettings.businessTagline   ?? "Fresh Juices & Salads",
+      businessAddress:   siteSettings.businessAddress   ?? "",
+      businessPhone:     siteSettings.businessPhone     ?? "",
+      receiptFooter:     siteSettings.receiptFooter     ?? "Thank you! Come again 🙏",
+      defaultDeliveryFee:siteSettings.defaultDeliveryFee?? "500",
+    });
+    try {
+      const cats = JSON.parse(siteSettings.expenseCategories ?? "[]");
+      setExpCats(Array.isArray(cats) && cats.length > 0 ? cats : DEFAULT_EXPENSE_CATS);
+    } catch {
+      setExpCats(DEFAULT_EXPENSE_CATS);
+    }
+  }, [siteSettings]);
+
+  async function saveBizInfo(e: React.FormEvent) {
+    e.preventDefault(); setBizSaving(true);
+    try {
+      await setSetting({ entries: Object.entries(bizForm).map(([key,value]) => ({key,value})) });
+      setBizSaved(true); setTimeout(()=>setBizSaved(false), 2000);
+    } finally { setBizSaving(false); }
+  }
+
+  async function saveExpCats() {
+    setCatSaving(true);
+    try {
+      await setSetting({ entries: [{ key: "expenseCategories", value: JSON.stringify(expCats) }] });
+      setCatSaved(true); setTimeout(()=>setCatSaved(false), 2000);
+    } finally { setCatSaving(false); }
+  }
+
+  function addCat() {
+    const trimmed = newCat.trim().toLowerCase();
+    if (!trimmed || expCats.includes(trimmed)) return;
+    setExpCats(c => [...c, trimmed]);
+    setNewCat("");
+  }
+
+  function removeCat(cat: string) {
+    setExpCats(c => c.filter(x => x !== cat));
+  }
+
+  function moveCat(idx: number, dir: -1|1) {
+    const arr = [...expCats];
+    const swap = idx + dir;
+    if (swap < 0 || swap >= arr.length) return;
+    [arr[idx], arr[swap]] = [arr[swap], arr[idx]];
+    setExpCats(arr);
+  }
+
+  if (!siteSettings) return <div className="flex items-center gap-2 text-gray-400 py-8"><Loader2 className="w-5 h-5 animate-spin"/>Loading settings...</div>;
+
+  return (
+    <div className="space-y-8 max-w-2xl">
+      <h2 className="text-white font-bold text-lg">Settings</h2>
+
+      {/* ── Business Profile ── */}
+      <section className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Building2 className="w-5 h-5 text-green-400"/>
+          <h3 className="text-white font-bold">Business Profile</h3>
+        </div>
+        <form onSubmit={saveBizInfo} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-gray-400 text-xs mb-1 block">Business Name</label>
+              <input value={bizForm.businessName} onChange={e=>setBizForm(f=>({...f,businessName:e.target.value}))}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500" placeholder="Spot-On"/>
+            </div>
+            <div>
+              <label className="text-gray-400 text-xs mb-1 block">Tagline</label>
+              <input value={bizForm.businessTagline} onChange={e=>setBizForm(f=>({...f,businessTagline:e.target.value}))}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500" placeholder="Fresh Juices & Salads"/>
+            </div>
+            <div>
+              <label className="text-gray-400 text-xs mb-1 block">Phone Number</label>
+              <input value={bizForm.businessPhone} onChange={e=>setBizForm(f=>({...f,businessPhone:e.target.value}))}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500" placeholder="+234 800 000 0000"/>
+            </div>
+            <div>
+              <label className="text-gray-400 text-xs mb-1 block">Default Delivery Fee (₦)</label>
+              <input type="number" value={bizForm.defaultDeliveryFee} onChange={e=>setBizForm(f=>({...f,defaultDeliveryFee:e.target.value}))}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500" placeholder="500"/>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-gray-400 text-xs mb-1 block">Address</label>
+              <input value={bizForm.businessAddress} onChange={e=>setBizForm(f=>({...f,businessAddress:e.target.value}))}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500" placeholder="12 Mango Street, Lagos"/>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-gray-400 text-xs mb-1 block flex items-center gap-1"><Receipt className="w-3 h-3"/>Receipt Footer Message</label>
+              <input value={bizForm.receiptFooter} onChange={e=>setBizForm(f=>({...f,receiptFooter:e.target.value}))}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500" placeholder="Thank you! Come again 🙏"/>
+            </div>
+          </div>
+          <button type="submit" disabled={bizSaving}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-green-700 hover:bg-green-600 text-white text-sm font-bold disabled:opacity-60 transition-all">
+            {bizSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : bizSaved ? <Check className="w-4 h-4 text-green-300"/> : <Save className="w-4 h-4"/>}
+            {bizSaved ? "Saved!" : "Save Business Info"}
+          </button>
+        </form>
+      </section>
+
+      {/* ── Expense Categories ── */}
+      <section className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <Tag className="w-5 h-5 text-orange-400"/>
+          <h3 className="text-white font-bold">Expense Categories</h3>
+        </div>
+        <p className="text-gray-400 text-xs">Customise the categories available when logging expenses. Drag to reorder.</p>
+
+        <div className="space-y-2">
+          {expCats.map((cat, idx) => (
+            <div key={cat} className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2">
+              <div className="flex flex-col gap-0.5">
+                <button type="button" onClick={()=>moveCat(idx,-1)} disabled={idx===0} className="text-gray-600 hover:text-gray-300 disabled:opacity-20 leading-none text-xs">▲</button>
+                <button type="button" onClick={()=>moveCat(idx,1)} disabled={idx===expCats.length-1} className="text-gray-600 hover:text-gray-300 disabled:opacity-20 leading-none text-xs">▼</button>
+              </div>
+              <span className="flex-1 text-white capitalize text-sm">{cat}</span>
+              <button type="button" onClick={()=>removeCat(cat)} className="p-1 rounded-lg hover:bg-red-900/30 text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5"/></button>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          <input value={newCat} onChange={e=>setNewCat(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&(e.preventDefault(),addCat())}
+            placeholder="New category name..." className="flex-1 px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
+          <button type="button" onClick={addCat} disabled={!newCat.trim()}
+            className="px-4 py-2.5 rounded-xl bg-white/10 text-green-400 hover:bg-white/20 disabled:opacity-40 text-sm font-semibold flex items-center gap-1">
+            <Plus className="w-4 h-4"/>Add
+          </button>
+        </div>
+
+        <button onClick={saveExpCats} disabled={catSaving}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-orange-600 hover:bg-orange-500 text-white text-sm font-bold disabled:opacity-60 transition-all">
+          {catSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : catSaved ? <Check className="w-4 h-4"/> : <Save className="w-4 h-4"/>}
+          {catSaved ? "Saved!" : "Save Categories"}
+        </button>
+      </section>
     </div>
   );
 }

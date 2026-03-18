@@ -19,6 +19,7 @@ export default defineSchema({
     gradient: v.string(),
     badge: v.optional(v.string()),
     sortOrder: v.optional(v.number()),
+    imageStorageId: v.optional(v.string()), // Convex storage ID for product image
   })
     .index("by_category", ["category"])
     .index("by_available", ["available"]),
@@ -66,16 +67,7 @@ export default defineSchema({
 
   expenses: defineTable({
     date: v.string(), // YYYY-MM-DD
-    category: v.union(
-      v.literal("ingredients"),
-      v.literal("rent"),
-      v.literal("transport"),
-      v.literal("packaging"),
-      v.literal("staff"),
-      v.literal("utilities"),
-      v.literal("marketing"),
-      v.literal("misc")
-    ),
+    category: v.string(), // flexible — customisable via Settings
     amount: v.number(),
     note: v.optional(v.string()),
     addedBy: v.optional(v.string()),

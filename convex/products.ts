@@ -4,19 +4,37 @@ import { v } from "convex/values";
 export const list = query({
   args: { category: v.optional(v.string()) },
   handler: async (ctx, { category }) => {
+    let products;
     if (category && category !== "all") {
-      return ctx.db
+      products = await ctx.db
         .query("products")
         .filter((q) => q.eq(q.field("category"), category))
         .collect();
+    } else {
+      products = await ctx.db.query("products").collect();
     }
-    return ctx.db.query("products").collect();
+    // Resolve Convex storage image URLs
+    return Promise.all(
+      products.map(async (p) => ({
+        ...p,
+        imageUrl: p.imageStorageId
+          ? await ctx.storage.getUrl(p.imageStorageId)
+          : null,
+      }))
+    );
   },
 });
 
 export const get = query({
   args: { id: v.id("products") },
-  handler: async (ctx, { id }) => ctx.db.get(id),
+  handler: async (ctx, { id }) => {
+    const p = await ctx.db.get(id);
+    if (!p) return null;
+    return {
+      ...p,
+      imageUrl: p.imageStorageId ? await ctx.storage.getUrl(p.imageStorageId) : null,
+    };
+  },
 });
 
 export const create = mutation({
@@ -37,6 +55,7 @@ export const create = mutation({
     gradient: v.string(),
     badge: v.optional(v.string()),
     sortOrder: v.optional(v.number()),
+    imageStorageId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return ctx.db.insert("products", args);
@@ -64,6 +83,7 @@ export const update = mutation({
     gradient: v.optional(v.string()),
     badge: v.optional(v.string()),
     sortOrder: v.optional(v.number()),
+    imageStorageId: v.optional(v.string()),
   },
   handler: async (ctx, { id, ...fields }) => {
     await ctx.db.patch(id, fields);
@@ -73,6 +93,11 @@ export const update = mutation({
 export const remove = mutation({
   args: { id: v.id("products") },
   handler: async (ctx, { id }) => {
+    const p = await ctx.db.get(id);
+    // Delete stored image too if exists
+    if (p?.imageStorageId) {
+      await ctx.storage.delete(p.imageStorageId);
+    }
     await ctx.db.delete(id);
   },
 });
@@ -84,12 +109,45 @@ export const toggleAvailable = mutation({
   },
 });
 
+// Generate a one-time upload URL for Convex file storage
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+// Save storage ID after upload (and optionally delete old image)
+export const updateImage = mutation({
+  args: { id: v.id("products"), storageId: v.string() },
+  handler: async (ctx, { id, storageId }) => {
+    const p = await ctx.db.get(id);
+    if (p?.imageStorageId && p.imageStorageId !== storageId) {
+      // Delete old image from storage
+      try { await ctx.storage.delete(p.imageStorageId); } catch { /**/ }
+    }
+    await ctx.db.patch(id, { imageStorageId: storageId });
+  },
+});
+
+// Remove just the image from a product
+export const removeImage = mutation({
+  args: { id: v.id("products") },
+  handler: async (ctx, { id }) => {
+    const p = await ctx.db.get(id);
+    if (p?.imageStorageId) {
+      try { await ctx.storage.delete(p.imageStorageId); } catch { /**/ }
+    }
+    await ctx.db.patch(id, { imageStorageId: undefined });
+  },
+});
+
 // Seed all menu items (run once from admin)
 export const seed = mutation({
   args: {},
   handler: async (ctx) => {
     const existing = await ctx.db.query("products").first();
-    if (existing) return { seeded: false, message: "Already seeded" };
+    if (existing) return { seeded: false, count: 0, message: "Already seeded" };
 
     const items = [
       { name: "Zest of Life", category: "juice" as const, description: "Pure cold-pressed orange juice bursting with vitamin C.", ingredients: ["Orange"], price: 1500, emoji: "🍊", gradient: "from-orange-400 to-yellow-300", available: true },
