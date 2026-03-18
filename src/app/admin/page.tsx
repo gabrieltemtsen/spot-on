@@ -232,7 +232,8 @@ function PosTab({
   const products = useQuery(api.products.list, {});
   const createOrder = useMutation(api.orders.create);
   const [cart, setCart] = useState<{id:string;name:string;emoji:string;imageUrl?:string|null;price:number;qty:number}[]>([]);
-  const [customerName, setCustomerName] = useState("Walk-in");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"cash"|"transfer"|"card">("cash");
   const [loading, setLoading] = useState(false);
   const [lastOrder, setLastOrder] = useState<any>(null);
@@ -267,10 +268,12 @@ function PosTab({
   async function charge() {
     if(!cart.length) return;
     setLoading(true);
+    const name  = customerName.trim()  || "Walk-in";
+    const phone = customerPhone.trim() || "Walk-in";
     try {
       const id = await createOrder({
-        customerName,
-        customerPhone: "Walk-in",
+        customerName: name,
+        customerPhone: phone,
         deliveryType: "walkin",
         items: cart.map(i=>({productId:i.id,name:i.name,price:i.price,quantity:i.qty,emoji:i.emoji})),
         subtotal,
@@ -280,10 +283,11 @@ function PosTab({
         processedByName: user.name,
         status: "completed",
       });
-      const order = { _id:id, orderNumber:`SO-${Date.now().toString().slice(-6)}`, customerName, customerPhone:"Walk-in", items:cart.map(i=>({...i,quantity:i.qty})), subtotal, total:subtotal, paymentMethod, createdAt:Date.now() };
+      const order = { _id:id, orderNumber:`SO-${Date.now().toString().slice(-6)}`, customerName:name, customerPhone:phone, items:cart.map(i=>({...i,quantity:i.qty})), subtotal, total:subtotal, paymentMethod, createdAt:Date.now() };
       setLastOrder(order);
       setCart([]);
-      setCustomerName("Walk-in");
+      setCustomerName("");
+      setCustomerPhone("");
     } finally { setLoading(false); }
   }
 
@@ -349,6 +353,13 @@ function PosTab({
           <h3 className="text-white font-bold">Current Sale</h3>
           <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Customer name (optional)"
             className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
+          <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder="Phone number (optional — saves to CRM)"
+            className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
+          {customerPhone.trim() && (
+            <p className="text-green-400 text-xs -mt-1 flex items-center gap-1">
+              <UserCircle className="w-3 h-3"/> Customer profile will be saved
+            </p>
+          )}
 
           {cart.length===0 ? (
             <p className="text-gray-500 text-sm text-center py-4">Tap products to add →</p>
