@@ -37,7 +37,7 @@ export const create = mutation({
     const orderNumber = `SO-${Date.now().toString().slice(-6)}`;
     const now = Date.now();
     const total = (args.subtotal ?? 0) + (args.deliveryFee ?? 0);
-    return ctx.db.insert("orders", {
+    const orderId = await ctx.db.insert("orders", {
       ...args,
       orderNumber,
       total,
@@ -45,6 +45,36 @@ export const create = mutation({
       createdAt: now,
       updatedAt: now,
     });
+
+    // Auto-upsert customer profile when a real phone number is given
+    if (args.customerPhone && args.customerPhone !== "Walk-in" && args.customerPhone.trim() !== "") {
+      const existing = await ctx.db
+        .query("customers")
+        .withIndex("by_phone", (q) => q.eq("phone", args.customerPhone))
+        .first();
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          name: args.customerName,
+          totalOrders: existing.totalOrders + 1,
+          totalSpend: existing.totalSpend + total,
+          lastOrderAt: now,
+          lastOrderItems: args.items,
+        });
+      } else {
+        await ctx.db.insert("customers", {
+          name: args.customerName,
+          phone: args.customerPhone,
+          totalOrders: 1,
+          totalSpend: total,
+          lastOrderAt: now,
+          lastOrderItems: args.items,
+          tags: ["new"],
+          createdAt: now,
+        });
+      }
+    }
+
+    return orderId;
   },
 });
 

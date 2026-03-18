@@ -1,13 +1,14 @@
 // @ts-nocheck
 "use client";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import Navbar from "@/components/Navbar";
 import CartDrawer from "@/components/CartDrawer";
+import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/menu";
-import { CheckCircle2, Clock, ChefHat, PackageCheck, Bike, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, Clock, ChefHat, PackageCheck, Bike, XCircle, Loader2, RotateCcw } from "lucide-react";
 import Link from "next/link";
 
 const STEPS = [
@@ -20,9 +21,35 @@ const STEPS = [
 
 export default function OrderPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const order = useQuery(api.orders.get, { id: id as Id<"orders"> });
+  const allProducts = useQuery(api.products.list, {});
+  const { clearCart, addItem, openCart } = useCart();
+
   const isCancelled = order?.status === "cancelled";
   const currentStep = order ? STEPS.findIndex((s) => s.key === order.status) : -1;
+
+  function handleOrderAgain() {
+    if (!order) return;
+    clearCart();
+    // Re-add each item — resolve from products list for full data, fall back to order item data
+    order.items.forEach((orderItem: any) => {
+      const product = allProducts?.find((p: any) => p._id === orderItem.productId);
+      addItem({
+        id: orderItem.productId,
+        name: orderItem.name,
+        category: product?.category ?? "juice",
+        description: product?.description ?? "",
+        ingredients: product?.ingredients ?? [],
+        price: product?.price ?? orderItem.price, // use current price
+        emoji: orderItem.emoji,
+        gradient: product?.gradient ?? "from-orange-400 to-yellow-300",
+        badge: product?.badge,
+        imageUrl: product?.imageUrl ?? null,
+      });
+    });
+    router.push("/checkout");
+  }
 
   return (
     <main className="bg-[#081C15] min-h-screen">
@@ -112,8 +139,21 @@ export default function OrderPage() {
               )}
             </div>
 
-            <div className="text-center">
-              <Link href="/menu" className="inline-flex items-center gap-2 px-8 py-3 rounded-full bg-green-700 text-white font-semibold hover:bg-green-600 transition-colors">Order More 🍊</Link>
+            {/* CTA buttons */}
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              {/* Order Again — only if products loaded and not cancelled */}
+              {!isCancelled && allProducts && (
+                <button
+                  onClick={handleOrderAgain}
+                  className="flex items-center justify-center gap-2 px-8 py-3.5 rounded-full bg-orange-500 hover:bg-orange-400 text-white font-bold transition-all active:scale-95">
+                  <RotateCcw className="w-4 h-4" /> Order Again
+                </button>
+              )}
+              <Link
+                href="/menu"
+                className="flex items-center justify-center gap-2 px-8 py-3.5 rounded-full bg-green-700 hover:bg-green-600 text-white font-semibold transition-colors">
+                Browse Menu 🍊
+              </Link>
             </div>
           </div>
         )}

@@ -86,4 +86,25 @@ export default defineSchema({
     key: v.string(),
     value: v.string(),
   }).index("by_key", ["key"]),
+
+  customers: defineTable({
+    name: v.string(),
+    phone: v.string(),
+    totalOrders: v.number(),
+    totalSpend: v.number(),
+    lastOrderAt: v.number(),
+    lastOrderItems: v.optional(v.array(v.object({
+      productId: v.string(),
+      name: v.string(),
+      price: v.number(),
+      quantity: v.number(),
+      emoji: v.string(),
+    }))),
+    tags: v.optional(v.array(v.string())),  // e.g. "vip", "loyal", "new"
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_phone", ["phone"])
+    .index("by_last_order", ["lastOrderAt"])
+    .index("by_total_spend", ["totalSpend"]),
 });
