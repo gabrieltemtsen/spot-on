@@ -42,8 +42,14 @@ export default function CartDrawer() {
           ) : (
             items.map(({ item, quantity }) => (
               <div key={item.id} className="flex items-center gap-3 bg-white/5 rounded-xl p-3 border border-white/10">
-                <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${item.gradient} flex items-center justify-center text-2xl shrink-0`}>
-                  {item.emoji}
+                <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0">
+                  {item.imageUrl ? (
+                    <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className={`w-full h-full bg-gradient-to-br ${item.gradient} flex items-center justify-center text-2xl`}>
+                      {item.emoji}
+                    </div>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-white font-semibold text-sm truncate">{item.name}</p>

@@ -11,6 +11,7 @@ export interface CartMenuItem {
   emoji: string;
   gradient: string;
   badge?: string;
+  imageUrl?: string | null;
 }
 
 export interface CartItem {
