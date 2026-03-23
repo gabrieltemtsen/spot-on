@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createOrder, readOrders } from "@/lib/orders-store";
-import { sendWhatsApp } from "@/lib/whatsapp";
+import { notifyNewOrder } from "@/lib/notify";
 
 export async function GET() {
   const orders = readOrders().sort((a, b) => b.createdAt - a.createdAt);
@@ -44,8 +44,9 @@ export async function POST(req: NextRequest) {
       ].filter(Boolean) as string[];
 
       const msg = lines.join("\n");
-      sendWhatsApp(msg).then((r) => {
-        if (!r.ok) console.warn("WhatsApp notify failed:", r);
+      notifyNewOrder(msg).then((r) => {
+        if (!r.telegram?.ok) console.warn("Telegram notify:", r.telegram);
+        if (!r.whatsapp?.ok) console.warn("WhatsApp notify:", r.whatsapp);
       });
     } catch (e) {
       console.warn("WhatsApp notify error:", e);

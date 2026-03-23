@@ -40,13 +40,19 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ---
 
-## WhatsApp order notifications (optional)
+## Order notifications (optional)
 
-Spot-On can send a WhatsApp alert when a **new order** is created using **CallMeBot** (simple personal gateway).
+Spot-On can send an alert when a **new order** is created.
 
-### Setup
-1. Set up CallMeBot for your WhatsApp number and get an API key.
-2. Add these environment variables to your deployment:
+### Option 1 (recommended): Telegram (simple + reliable)
+Add these env vars:
+
+```env
+TELEGRAM_BOT_TOKEN=123456:ABC...
+TELEGRAM_CHAT_ID=123456789
+```
+
+### Option 2: WhatsApp via CallMeBot (personal gateway)
 
 ```env
 WHATSAPP_PROVIDER=callmebot
@@ -54,7 +60,7 @@ CALLMEBOT_PHONE=2348012345678  # country code + number (no +)
 CALLMEBOT_API_KEY=xxxxxx
 ```
 
-If these env vars are not set, the app will **skip** WhatsApp notifications (orders still work normally).
+If none of the env vars are set, the app will **skip** notifications (orders still work normally).
 
 ## Environment Variables
 
