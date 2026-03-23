@@ -18,13 +18,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ sent: false, reason: "No notification channel configured" });
   }
 
-  const { orderNumber, customerName, customerPhone, items, subtotal, deliveryType, deliveryAddress } = body;
+  const {
+    orderNumber,
+    customerName,
+    customerPhone,
+    items,
+    subtotal,
+    deliveryFee,
+    total,
+    deliveryType,
+    deliveryAddress,
+    specialInstructions,
+  } = body;
 
   const itemsListPlain = items
     .map((i: { emoji: string; name: string; quantity: number; price: number }) =>
       `${i.emoji} ${i.name} ×${i.quantity} — ₦${(i.price * i.quantity).toLocaleString("en-NG")}`
     )
     .join("\n");
+
+  const resolvedSubtotal = typeof subtotal === "number" ? subtotal : null;
+  const resolvedDeliveryFee = typeof deliveryFee === "number" ? deliveryFee : null;
+  const resolvedTotal = typeof total === "number" ? total : resolvedSubtotal;
 
   const messagePlain = [
     `🍊 New Spot-On Order`,
@@ -33,11 +48,14 @@ export async function POST(req: NextRequest) {
     `Phone: ${customerPhone}`,
     `Type: ${deliveryType}`,
     deliveryAddress ? `Address: ${deliveryAddress}` : null,
+    specialInstructions ? `Notes: ${specialInstructions}` : null,
     ``,
     `Items:`,
     itemsListPlain,
     ``,
-    `Total: ₦${Number(subtotal).toLocaleString("en-NG")}`,
+    resolvedSubtotal !== null ? `Subtotal: ₦${resolvedSubtotal.toLocaleString("en-NG")}` : null,
+    resolvedDeliveryFee ? `Delivery fee: ₦${resolvedDeliveryFee.toLocaleString("en-NG")}` : null,
+    resolvedTotal !== null ? `Total: ₦${resolvedTotal.toLocaleString("en-NG")}` : null,
   ]
     .filter(Boolean)
     .join("\n");
@@ -57,6 +75,7 @@ export async function POST(req: NextRequest) {
     `*Phone:* ${customerPhone}`,
     `*Type:* ${deliveryType}`,
     deliveryAddress ? `*Address:* ${deliveryAddress}` : null,
+    specialInstructions ? `*Notes:* ${specialInstructions}` : null,
     ``,
     `*Items:*`,
     items
@@ -65,7 +84,9 @@ export async function POST(req: NextRequest) {
       )
       .join("\n"),
     ``,
-    `*Total: ₦${Number(subtotal).toLocaleString("en-NG")}*`,
+    resolvedSubtotal !== null ? `*Subtotal: ₦${resolvedSubtotal.toLocaleString("en-NG")}*` : null,
+    resolvedDeliveryFee ? `*Delivery fee: ₦${resolvedDeliveryFee.toLocaleString("en-NG")}*` : null,
+    resolvedTotal !== null ? `*Total: ₦${resolvedTotal.toLocaleString("en-NG")}*` : null,
   ]
     .filter(Boolean)
     .join("\n");

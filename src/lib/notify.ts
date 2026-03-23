@@ -12,7 +12,7 @@ export type NotifyChannel = "telegram" | "whatsapp";
  * - If none configured -> no-op
  */
 export async function notifyNewOrder(message: string) {
-  const results: Record<string, any> = {};
+  const results: Record<string, unknown> = {};
 
   // Telegram (recommended)
   const tg = await sendTelegram(message);

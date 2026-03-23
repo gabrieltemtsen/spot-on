@@ -66,9 +66,12 @@ export default function CheckoutPage() {
           customerName: form.customerName,
           customerPhone: form.customerPhone,
           items: items.map(({ item, quantity }) => ({ name: item.name, quantity, price: item.price, emoji: item.emoji })),
-          subtotal: orderTotal,
+          subtotal,
+          deliveryFee,
+          total: orderTotal,
           deliveryType: form.deliveryType,
           deliveryAddress: form.deliveryAddress,
+          specialInstructions: form.specialInstructions,
         }),
       }).catch(() => { /* silent fail */ });
 
