@@ -38,6 +38,24 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000)
 
+---
+
+## WhatsApp order notifications (optional)
+
+Spot-On can send a WhatsApp alert when a **new order** is created using **CallMeBot** (simple personal gateway).
+
+### Setup
+1. Set up CallMeBot for your WhatsApp number and get an API key.
+2. Add these environment variables to your deployment:
+
+```env
+WHATSAPP_PROVIDER=callmebot
+CALLMEBOT_PHONE=2348012345678  # country code + number (no +)
+CALLMEBOT_API_KEY=xxxxxx
+```
+
+If these env vars are not set, the app will **skip** WhatsApp notifications (orders still work normally).
+
 ## Environment Variables
 
 ```env
