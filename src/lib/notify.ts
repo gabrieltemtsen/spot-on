@@ -1,26 +1,21 @@
-import { sendWhatsApp } from "@/lib/whatsapp";
-import { sendTelegram } from "@/lib/telegram";
+import { sendWhatsApp, type WhatsAppSendResult } from "@/lib/whatsapp";
+import { sendTelegram, type TelegramSendResult } from "@/lib/telegram";
 
-export type NotifyChannel = "telegram" | "whatsapp";
+export interface NotifyNewOrderResult {
+  telegram: TelegramSendResult;
+  whatsapp: WhatsAppSendResult;
+}
 
 /**
- * Notify via any configured channel(s).
+ * Notify admins about a new order.
  *
- * Default behavior:
- * - If Telegram is configured -> send Telegram
- * - If CallMeBot WhatsApp is configured -> send WhatsApp
- * - If none configured -> no-op
+ * Behavior:
+ * - Always attempts Telegram (recommended)
+ * - Always attempts WhatsApp (CallMeBot) as a secondary channel
+ *
+ * Both are non-blocking in callers; failures are returned in result.
  */
-export async function notifyNewOrder(message: string) {
-  const results: Record<string, any> = {};
-
-  // Telegram (recommended)
-  const tg = await sendTelegram(message);
-  results.telegram = tg;
-
-  // WhatsApp (CallMeBot)
-  const wa = await sendWhatsApp(message);
-  results.whatsapp = wa;
-
-  return results;
+export async function notifyNewOrder(message: string): Promise<NotifyNewOrderResult> {
+  const [telegram, whatsapp] = await Promise.all([sendTelegram(message), sendWhatsApp(message)]);
+  return { telegram, whatsapp };
 }
