@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createOrder, readOrders } from "@/lib/orders-store";
+import { notifyNewOrder } from "@/lib/notify";
 
 export async function GET() {
   const orders = readOrders().sort((a, b) => b.createdAt - a.createdAt);
@@ -26,6 +27,30 @@ export async function POST(req: NextRequest) {
       items,
       subtotal,
     });
+
+    // Fire-and-forget WhatsApp notification (does not block order creation)
+    try {
+      const lines = [
+        "🛒 New Order (SpotOn)",
+        `Order ID: ${order.id}`,
+        `Customer: ${order.customerName} (${order.customerPhone})`,
+        `Delivery: ${order.deliveryType}${order.deliveryAddress ? ` — ${order.deliveryAddress}` : ""}`,
+        `Items: ${order.items
+          .map((i) => `${i.quantity}× ${i.name} (₦${Number(i.price).toLocaleString("en-NG")})`)
+          .join(", ")}`,
+        `Subtotal: ₦${Number(order.subtotal).toLocaleString("en-NG")}`,
+        order.specialInstructions ? `Notes: ${order.specialInstructions}` : null,
+        `Time: ${new Date(order.createdAt).toLocaleString("en-NG")}`,
+      ].filter(Boolean) as string[];
+
+      const msg = lines.join("\n");
+      notifyNewOrder(msg).then((r) => {
+        if (!r.telegram?.ok) console.warn("Telegram notify:", r.telegram);
+        if (!r.whatsapp?.ok) console.warn("WhatsApp notify:", r.whatsapp);
+      });
+    } catch (e) {
+      console.warn("WhatsApp notify error:", e);
+    }
 
     return NextResponse.json(order, { status: 201 });
   } catch (e) {
