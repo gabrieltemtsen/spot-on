@@ -414,6 +414,10 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
   const assignRider = useMutation(api.orders.assignRider);
   const confirmPayment = useMutation(api.orders.confirmPayment);
   const rejectPayment = useMutation(api.orders.rejectPayment);
+  const receiptUrl = useQuery(
+    api.orders.getReceiptUrl,
+    selected ? { id: selected._id } : "skip"
+  );
   const [selected, setSelected] = useState<any>(null);
   const [updating, setUpdating] = useState<string|null>(null);
   const [paymentUpdating, setPaymentUpdating] = useState<string|null>(null);
@@ -547,7 +551,19 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
                   <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-3 space-y-2">
                     <p className="text-amber-300 text-xs font-semibold">⏳ Payment Awaiting Confirmation</p>
                     {selectedData.paymentBank && <p className="text-gray-400 text-xs">Sent from: <span className="text-white">{selectedData.paymentBank}</span></p>}
-                    {selectedData.paymentReference && <p className="text-gray-400 text-xs">Ref: <span className="text-white font-mono">{selectedData.paymentReference}</span></p>}
+                    {/* Receipt image */}
+                    {receiptUrl && (
+                      <a href={receiptUrl} target="_blank" rel="noopener noreferrer" className="block rounded-lg overflow-hidden border border-amber-500/30 hover:border-amber-400/60 transition-colors">
+                        <img src={receiptUrl} alt="Transfer receipt" className="w-full max-h-40 object-contain bg-black/40" />
+                        <p className="text-center text-xs text-amber-400 py-1 bg-black/30">Tap to view full receipt</p>
+                      </a>
+                    )}
+                    {!receiptUrl && selectedData.receiptStorageId && (
+                      <p className="text-gray-500 text-xs">Loading receipt...</p>
+                    )}
+                    {!selectedData.receiptStorageId && (
+                      <p className="text-gray-500 text-xs italic">No receipt uploaded</p>
+                    )}
                     <div className="flex gap-2 pt-1">
                       <button onClick={()=>handleConfirmPayment(selectedData._id)} disabled={paymentUpdating===selectedData._id}
                         className="flex-1 py-2 rounded-full bg-green-700 hover:bg-green-600 text-white text-xs font-bold disabled:opacity-60 flex items-center justify-center gap-1">

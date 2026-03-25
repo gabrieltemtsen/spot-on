@@ -45,8 +45,8 @@ export default defineSchema({
     total: v.optional(v.number()), // subtotal + deliveryFee
     paymentMethod: v.optional(v.union(v.literal("cash"), v.literal("transfer"), v.literal("card"), v.literal("pending"))),
     paymentStatus: v.optional(v.union(v.literal("unpaid"), v.literal("awaiting_confirmation"), v.literal("confirmed"), v.literal("rejected"))),
-    paymentBank: v.optional(v.string()),      // bank customer sent from
-    paymentReference: v.optional(v.string()), // any ref customer added
+    paymentBank: v.optional(v.string()),           // bank customer sent from
+    receiptStorageId: v.optional(v.string()),      // Convex storage ID of receipt screenshot
     paymentConfirmedBy: v.optional(v.string()),
     paymentConfirmedAt: v.optional(v.number()),
     source: v.optional(v.union(v.literal("web"), v.literal("walkin"))),

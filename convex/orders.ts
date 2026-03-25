@@ -30,7 +30,7 @@ export const create = mutation({
     paymentMethod: v.optional(v.union(v.literal("cash"), v.literal("transfer"), v.literal("card"), v.literal("pending"))),
     paymentStatus: v.optional(v.union(v.literal("unpaid"), v.literal("awaiting_confirmation"), v.literal("confirmed"), v.literal("rejected"))),
     paymentBank: v.optional(v.string()),
-    paymentReference: v.optional(v.string()),
+    receiptStorageId: v.optional(v.string()),
     source: v.optional(v.union(v.literal("web"), v.literal("walkin"))),
     processedBy: v.optional(v.string()),
     processedByName: v.optional(v.string()),
@@ -211,6 +211,40 @@ export const createWithNotify: any = action({
   },
 });
 
+// Generate a one-time upload URL for receipt screenshots
+export const generateReceiptUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => ctx.storage.generateUploadUrl(),
+});
+
+// Save receipt storage ID to order
+export const saveReceiptStorageId = mutation({
+  args: { id: v.id("orders"), storageId: v.string() },
+  handler: async (ctx, { id, storageId }) => {
+    const order = await ctx.db.get(id);
+    if (!order) throw new Error("Order not found");
+    // Delete old receipt if it exists
+    if (order.receiptStorageId) {
+      try { await ctx.storage.delete(order.receiptStorageId); } catch { /**/ }
+    }
+    await ctx.db.patch(id, {
+      receiptStorageId: storageId,
+      paymentStatus: "awaiting_confirmation",
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+// Get receipt image URL
+export const getReceiptUrl = query({
+  args: { id: v.id("orders") },
+  handler: async (ctx, { id }) => {
+    const order = await ctx.db.get(id);
+    if (!order?.receiptStorageId) return null;
+    return ctx.storage.getUrl(order.receiptStorageId);
+  },
+});
+
 export const confirmPayment = mutation({
   args: {
     id: v.id("orders"),
@@ -219,11 +253,15 @@ export const confirmPayment = mutation({
   handler: async (ctx, { id, confirmedBy }) => {
     const order = await ctx.db.get(id);
     if (!order) throw new Error("Order not found");
+    // Auto-delete receipt image after confirmation
+    if (order.receiptStorageId) {
+      try { await ctx.storage.delete(order.receiptStorageId); } catch { /**/ }
+    }
     await ctx.db.patch(id, {
       paymentStatus: "confirmed",
       paymentConfirmedBy: confirmedBy ?? "admin",
       paymentConfirmedAt: Date.now(),
-      // Auto-advance order status from pending → confirmed
+      receiptStorageId: undefined,
       status: order.status === "pending" ? "confirmed" : order.status,
       updatedAt: Date.now(),
     });
@@ -233,8 +271,15 @@ export const confirmPayment = mutation({
 export const rejectPayment = mutation({
   args: { id: v.id("orders") },
   handler: async (ctx, { id }) => {
+    const order = await ctx.db.get(id);
+    if (!order) throw new Error("Order not found");
+    // Auto-delete receipt image on rejection too
+    if (order.receiptStorageId) {
+      try { await ctx.storage.delete(order.receiptStorageId); } catch { /**/ }
+    }
     await ctx.db.patch(id, {
       paymentStatus: "rejected",
+      receiptStorageId: undefined,
       updatedAt: Date.now(),
     });
   },
