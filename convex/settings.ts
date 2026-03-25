@@ -14,9 +14,9 @@ export const DEFAULTS: Record<string, string> = {
     "staff", "utilities", "marketing", "misc"
   ]),
   // Bank transfer details shown to customers at checkout
-  bankName: "",
-  bankAccountNumber: "",
-  bankAccountName: "",
+  bankName: "Moniepoint",
+  bankAccountNumber: "5920059782",
+  bankAccountName: "MAFENG CHRISTABEL PAM",
 };
 
 export const getAll = query({
