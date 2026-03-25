@@ -8,7 +8,7 @@ import Navbar from "@/components/Navbar";
 import CartDrawer from "@/components/CartDrawer";
 import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/menu";
-import { CheckCircle2, Clock, ChefHat, PackageCheck, Bike, XCircle, Loader2, RotateCcw } from "lucide-react";
+import { CheckCircle2, Clock, ChefHat, PackageCheck, Bike, XCircle, Loader2, RotateCcw, Banknote, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
 const STEPS = [
@@ -24,6 +24,7 @@ export default function OrderPage() {
   const router = useRouter();
   const order = useQuery(api.orders.get, { id: id as Id<"orders"> });
   const allProducts = useQuery(api.products.list, {});
+  const settings = useQuery(api.settings.getAll, {});
   const { clearCart, addItem, openCart } = useCart();
 
   const isCancelled = order?.status === "cancelled";
@@ -112,6 +113,52 @@ export default function OrderPage() {
               <div className="bg-red-900/20 border border-red-500/30 rounded-2xl p-6 flex items-center gap-4">
                 <XCircle className="w-8 h-8 text-red-400 shrink-0" />
                 <div><p className="text-white font-semibold">This order was cancelled.</p><p className="text-gray-400 text-sm">Please place a new order or contact us.</p></div>
+              </div>
+            )}
+
+            {/* ── Payment Status ─────────────────── */}
+            {order.paymentMethod === "transfer" && (
+              <div className={`rounded-2xl p-5 border flex gap-4 items-start ${
+                order.paymentStatus === "confirmed"
+                  ? "bg-green-900/20 border-green-500/30"
+                  : order.paymentStatus === "rejected"
+                  ? "bg-red-900/20 border-red-500/30"
+                  : "bg-amber-900/20 border-amber-500/30"
+              }`}>
+                {order.paymentStatus === "confirmed" ? (
+                  <CheckCircle2 className="w-6 h-6 text-green-400 shrink-0 mt-0.5" />
+                ) : order.paymentStatus === "rejected" ? (
+                  <XCircle className="w-6 h-6 text-red-400 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-6 h-6 text-amber-400 shrink-0 mt-0.5 animate-pulse" />
+                )}
+                <div className="flex-1">
+                  <p className={`font-semibold ${
+                    order.paymentStatus === "confirmed" ? "text-green-300"
+                    : order.paymentStatus === "rejected" ? "text-red-300"
+                    : "text-amber-300"
+                  }`}>
+                    {order.paymentStatus === "confirmed"
+                      ? "Payment Confirmed ✅"
+                      : order.paymentStatus === "rejected"
+                      ? "Payment Not Verified ❌"
+                      : "Awaiting Payment Confirmation ⏳"}
+                  </p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    {order.paymentStatus === "confirmed"
+                      ? `Verified by ${order.paymentConfirmedBy ?? "admin"}. Your order is being prepared.`
+                      : order.paymentStatus === "rejected"
+                      ? "We couldn't verify your transfer. Please contact us for help."
+                      : `We received your transfer from ${order.paymentBank ?? "your bank"}. We'll confirm shortly and start preparing your order.`}
+                  </p>
+                  {order.paymentStatus !== "confirmed" && order.paymentStatus !== "rejected" && (
+                    <div className="mt-3 bg-black/20 rounded-xl p-3 text-xs text-gray-400 space-y-1">
+                      {settings?.bankAccountNumber && <p>Account: <span className="text-white font-mono">{settings.bankAccountNumber}</span> · {settings.bankName}</p>}
+                      <p>Amount: <span className="text-white font-bold">{formatPrice((order.subtotal ?? 0) + (order.deliveryFee ?? 0))}</span></p>
+                      <p className="text-gray-500">This page updates automatically. Check back in a moment.</p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

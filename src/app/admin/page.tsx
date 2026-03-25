@@ -412,8 +412,11 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
   const stats = useQuery(api.orders.getStats);
   const updateStatus = useMutation(api.orders.updateStatus);
   const assignRider = useMutation(api.orders.assignRider);
+  const confirmPayment = useMutation(api.orders.confirmPayment);
+  const rejectPayment = useMutation(api.orders.rejectPayment);
   const [selected, setSelected] = useState<any>(null);
   const [updating, setUpdating] = useState<string|null>(null);
+  const [paymentUpdating, setPaymentUpdating] = useState<string|null>(null);
   const [riderForm, setRiderForm] = useState({name:"",phone:""});
   const [showRider, setShowRider] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -421,6 +424,23 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
   async function handleStatus(id:string,status:OrderStatus){
     setUpdating(id);
     try{await updateStatus({id,status});}finally{setUpdating(null);}
+  }
+
+  async function handleConfirmPayment(id:string){
+    setPaymentUpdating(id);
+    try{
+      await confirmPayment({id, confirmedBy: user.name});
+      // Refresh selected if open
+      if(selected?._id===id) setSelected((s:any)=>s ? {...s, paymentStatus:"confirmed", status:"confirmed"} : s);
+    }finally{setPaymentUpdating(null);}
+  }
+
+  async function handleRejectPayment(id:string){
+    setPaymentUpdating(id);
+    try{
+      await rejectPayment({id});
+      if(selected?._id===id) setSelected((s:any)=>s ? {...s, paymentStatus:"rejected"} : s);
+    }finally{setPaymentUpdating(null);}
   }
 
   function copyRiderText(order:any){
@@ -477,7 +497,10 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
                       {order.source==="walkin"&&<span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded-full border border-purple-500/30">Walk-in</span>}
                     </div>
                     <p className="text-gray-300 text-sm mt-0.5">{order.customerName}{order.customerPhone!=="Walk-in"&&` · ${order.customerPhone}`}</p>
-                    <p className="text-gray-500 text-xs">{order.items.length} items · {formatPrice(order.total??order.subtotal)} · {order.paymentMethod||"pending"}</p>
+                    <p className="text-gray-500 text-xs">{order.items.length} items · {formatPrice(order.total??order.subtotal)} · {order.paymentMethod||"pending"}
+                      {order.paymentMethod==="transfer"&&order.paymentStatus==="awaiting_confirmation"&&<span className="ml-1 text-amber-400">⏳</span>}
+                      {order.paymentMethod==="transfer"&&order.paymentStatus==="confirmed"&&<span className="ml-1 text-green-400">✅</span>}
+                    </p>
                   </div>
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
                     <p className="text-gray-500 text-xs">{new Date(order.createdAt).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</p>
@@ -519,6 +542,30 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
                 <div className="flex justify-between font-bold pt-1 border-t border-white/10"><span className="text-white">Total</span><span className="text-green-400">{formatPrice(selectedData.total??selectedData.subtotal)}</span></div>
               </div>
               <div className="space-y-2 pt-1">
+                {/* Payment confirmation for transfer orders */}
+                {selectedData.paymentMethod==="transfer" && selectedData.paymentStatus==="awaiting_confirmation" && (
+                  <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-3 space-y-2">
+                    <p className="text-amber-300 text-xs font-semibold">⏳ Payment Awaiting Confirmation</p>
+                    {selectedData.paymentBank && <p className="text-gray-400 text-xs">Sent from: <span className="text-white">{selectedData.paymentBank}</span></p>}
+                    {selectedData.paymentReference && <p className="text-gray-400 text-xs">Ref: <span className="text-white font-mono">{selectedData.paymentReference}</span></p>}
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={()=>handleConfirmPayment(selectedData._id)} disabled={paymentUpdating===selectedData._id}
+                        className="flex-1 py-2 rounded-full bg-green-700 hover:bg-green-600 text-white text-xs font-bold disabled:opacity-60 flex items-center justify-center gap-1">
+                        {paymentUpdating===selectedData._id?<Loader2 className="w-3 h-3 animate-spin"/>:<CheckCircle2 className="w-3.5 h-3.5"/>}Confirm Payment
+                      </button>
+                      <button onClick={()=>handleRejectPayment(selectedData._id)} disabled={paymentUpdating===selectedData._id}
+                        className="flex-1 py-2 rounded-full bg-red-900/30 hover:bg-red-800/40 text-red-400 text-xs font-bold disabled:opacity-60 flex items-center justify-center gap-1">
+                        <XCircle className="w-3.5 h-3.5"/>Reject
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {selectedData.paymentMethod==="transfer" && selectedData.paymentStatus==="confirmed" && (
+                  <div className="bg-green-900/20 border border-green-500/30 rounded-xl p-2.5 text-center text-green-400 text-xs font-semibold">✅ Payment Confirmed</div>
+                )}
+                {selectedData.paymentMethod==="transfer" && selectedData.paymentStatus==="rejected" && (
+                  <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-2.5 text-center text-red-400 text-xs font-semibold">❌ Payment Rejected</div>
+                )}
                 {Object.entries(NEXT_STATUS).map(([from,to])=>selectedData.status===from?(
                   <button key={to} onClick={()=>handleStatus(selectedData._id,to as OrderStatus)} disabled={updating===selectedData._id}
                     className="w-full py-2 rounded-full bg-green-700 hover:bg-green-600 text-white text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2">
@@ -1274,6 +1321,11 @@ function SettingsTab() {
   const [bizSaving, setBizSaving] = useState(false);
   const [bizSaved, setBizSaved] = useState(false);
 
+  // Bank account
+  const [bankForm, setBankForm] = useState({ bankName:"", bankAccountNumber:"", bankAccountName:"" });
+  const [bankSaving, setBankSaving] = useState(false);
+  const [bankSaved, setBankSaved] = useState(false);
+
   // Expense categories
   const [expCats, setExpCats] = useState<string[]>([]);
   const [newCat, setNewCat] = useState("");
@@ -1291,6 +1343,11 @@ function SettingsTab() {
       receiptFooter:     siteSettings.receiptFooter     ?? "Thank you! Come again 🙏",
       defaultDeliveryFee:siteSettings.defaultDeliveryFee?? "500",
     });
+    setBankForm({
+      bankName:          siteSettings.bankName          ?? "",
+      bankAccountNumber: siteSettings.bankAccountNumber ?? "",
+      bankAccountName:   siteSettings.bankAccountName   ?? "",
+    });
     try {
       const cats = JSON.parse(siteSettings.expenseCategories ?? "[]");
       setExpCats(Array.isArray(cats) && cats.length > 0 ? cats : DEFAULT_EXPENSE_CATS);
@@ -1305,6 +1362,14 @@ function SettingsTab() {
       await setSetting({ entries: Object.entries(bizForm).map(([key,value]) => ({key,value})) });
       setBizSaved(true); setTimeout(()=>setBizSaved(false), 2000);
     } finally { setBizSaving(false); }
+  }
+
+  async function saveBankInfo(e: React.FormEvent) {
+    e.preventDefault(); setBankSaving(true);
+    try {
+      await setSetting({ entries: Object.entries(bankForm).map(([key,value]) => ({key,value})) });
+      setBankSaved(true); setTimeout(()=>setBankSaved(false), 2000);
+    } finally { setBankSaving(false); }
   }
 
   async function saveExpCats() {
@@ -1383,6 +1448,39 @@ function SettingsTab() {
             className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-green-700 hover:bg-green-600 text-white text-sm font-bold disabled:opacity-60 transition-all">
             {bizSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : bizSaved ? <Check className="w-4 h-4 text-green-300"/> : <Save className="w-4 h-4"/>}
             {bizSaved ? "Saved!" : "Save Business Info"}
+          </button>
+        </form>
+      </section>
+
+      {/* ── Bank Account ── */}
+      <section className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <Building2 className="w-5 h-5 text-blue-400"/>
+          <h3 className="text-white font-bold">Bank Transfer Details</h3>
+        </div>
+        <p className="text-gray-400 text-xs">These details are shown to customers who choose to pay by bank transfer.</p>
+        <form onSubmit={saveBankInfo} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="text-gray-400 text-xs mb-1 block">Bank Name</label>
+              <input value={bankForm.bankName} onChange={e=>setBankForm(f=>({...f,bankName:e.target.value}))}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500" placeholder="e.g. GTBank"/>
+            </div>
+            <div>
+              <label className="text-gray-400 text-xs mb-1 block">Account Number</label>
+              <input value={bankForm.bankAccountNumber} onChange={e=>setBankForm(f=>({...f,bankAccountNumber:e.target.value}))}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm font-mono focus:outline-none focus:border-green-500" placeholder="0123456789"/>
+            </div>
+            <div>
+              <label className="text-gray-400 text-xs mb-1 block">Account Name</label>
+              <input value={bankForm.bankAccountName} onChange={e=>setBankForm(f=>({...f,bankAccountName:e.target.value}))}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500" placeholder="e.g. Spot-On Foods Ltd"/>
+            </div>
+          </div>
+          <button type="submit" disabled={bankSaving}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-blue-700 hover:bg-blue-600 text-white text-sm font-bold disabled:opacity-60 transition-all">
+            {bankSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : bankSaved ? <Check className="w-4 h-4 text-green-300"/> : <Save className="w-4 h-4"/>}
+            {bankSaved ? "Saved!" : "Save Bank Details"}
           </button>
         </form>
       </section>

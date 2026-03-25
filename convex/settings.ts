@@ -13,6 +13,10 @@ export const DEFAULTS: Record<string, string> = {
     "ingredients", "rent", "transport", "packaging",
     "staff", "utilities", "marketing", "misc"
   ]),
+  // Bank transfer details shown to customers at checkout
+  bankName: "",
+  bankAccountNumber: "",
+  bankAccountName: "",
 };
 
 export const getAll = query({

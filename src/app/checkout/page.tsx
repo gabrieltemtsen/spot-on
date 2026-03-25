@@ -1,21 +1,31 @@
 // @ts-nocheck
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import Navbar from "@/components/Navbar";
 import CartDrawer from "@/components/CartDrawer";
 import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/menu";
-import { Loader2, MapPin, Store, CheckCircle2 } from "lucide-react";
+import { Loader2, MapPin, Store, CheckCircle2, Copy, Check, Banknote } from "lucide-react";
 
-const DELIVERY_FEE = 500; // default flat delivery fee
+const DELIVERY_FEE = 500;
+
+function saveOrderToLocalStorage(orderId: string, orderNumber: string, customerName: string) {
+  try {
+    const existing = JSON.parse(localStorage.getItem("spoton_orders") ?? "[]");
+    existing.unshift({ id: orderId, orderNumber, customerName, placedAt: Date.now() });
+    // Keep last 20 orders
+    localStorage.setItem("spoton_orders", JSON.stringify(existing.slice(0, 20)));
+  } catch { /* silent */ }
+}
 
 export default function CheckoutPage() {
   const router = useRouter();
   const { items, total, clearCart } = useCart();
   const createOrder = useMutation(api.orders.create);
+  const settings = useQuery(api.settings.getAll, {});
 
   const [form, setForm] = useState({
     customerName: "",
@@ -23,10 +33,13 @@ export default function CheckoutPage() {
     deliveryType: "pickup" as "pickup" | "delivery",
     deliveryAddress: "",
     specialInstructions: "",
-    paymentMethod: "pending" as "pending" | "cash" | "transfer" | "card",
+    paymentMethod: "transfer" as "pending" | "cash" | "transfer" | "card",
+    paymentBank: "",
+    paymentReference: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
 
   function update(field: string, val: string) {
     setForm((f) => ({ ...f, [field]: val }));
@@ -36,14 +49,29 @@ export default function CheckoutPage() {
   const deliveryFee = form.deliveryType === "delivery" ? DELIVERY_FEE : 0;
   const orderTotal = subtotal + deliveryFee;
 
+  const bankName = settings?.bankName || "";
+  const bankAccountNumber = settings?.bankAccountNumber || "";
+  const bankAccountName = settings?.bankAccountName || "";
+  const hasBankDetails = bankName && bankAccountNumber && bankAccountName;
+
+  function copyAccountNumber() {
+    navigator.clipboard.writeText(bankAccountNumber).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.customerName || !form.customerPhone) { setError("Please fill in your name and phone number."); return; }
     if (form.deliveryType === "delivery" && !form.deliveryAddress) { setError("Please enter your delivery address."); return; }
     if (items.length === 0) { setError("Your cart is empty."); return; }
+    if (form.paymentMethod === "transfer" && !form.paymentBank) { setError("Please tell us which bank you sent from."); return; }
     setError(""); setLoading(true);
 
     try {
+      const paymentStatus = form.paymentMethod === "transfer" ? "awaiting_confirmation" : "unpaid";
+
       const orderId = await createOrder({
         customerName: form.customerName,
         customerPhone: form.customerPhone,
@@ -54,15 +82,23 @@ export default function CheckoutPage() {
         subtotal,
         deliveryFee: deliveryFee || undefined,
         paymentMethod: form.paymentMethod,
+        paymentStatus,
+        paymentBank: form.paymentBank || undefined,
+        paymentReference: form.paymentReference || undefined,
         source: "web",
       });
 
-      // Fire WhatsApp notification (non-blocking)
+      const orderNumber = `SO-${Date.now().toString().slice(-6)}`;
+
+      // Save to localStorage for "My Orders"
+      saveOrderToLocalStorage(orderId, orderNumber, form.customerName);
+
+      // Fire notification (non-blocking)
       fetch("/api/notify-whatsapp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          orderNumber: `SO-${Date.now().toString().slice(-6)}`,
+          orderNumber,
           customerName: form.customerName,
           customerPhone: form.customerPhone,
           items: items.map(({ item, quantity }) => ({ name: item.name, quantity, price: item.price, emoji: item.emoji })),
@@ -72,8 +108,10 @@ export default function CheckoutPage() {
           deliveryType: form.deliveryType,
           deliveryAddress: form.deliveryAddress,
           specialInstructions: form.specialInstructions,
+          paymentMethod: form.paymentMethod,
+          paymentBank: form.paymentBank,
         }),
-      }).catch(() => { /* silent fail */ });
+      }).catch(() => {});
 
       clearCart();
       router.push(`/order/${orderId}`);
@@ -99,6 +137,8 @@ export default function CheckoutPage() {
         ) : (
           <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-6">
+
+              {/* ── Details ─────────────────── */}
               <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
                 <h2 className="text-white font-bold text-lg">Your Details</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -113,6 +153,7 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
+              {/* ── Delivery ─────────────────── */}
               <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
                 <h2 className="text-white font-bold text-lg">Delivery Method</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -136,18 +177,86 @@ export default function CheckoutPage() {
                 )}
               </div>
 
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-3">
-                <h2 className="text-white font-bold text-lg">Payment Method</h2>
+              {/* ── Payment Method ─────────────────── */}
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
+                <h2 className="text-white font-bold text-lg">Payment</h2>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[{val:"pending",label:"Pay Later"},{val:"cash",label:"Cash"},{val:"transfer",label:"Transfer"},{val:"card",label:"Card/POS"}].map(pm=>(
-                    <button type="button" key={pm.val} onClick={()=>update("paymentMethod",pm.val)}
-                      className={`py-3 rounded-xl text-sm font-semibold transition-all border ${form.paymentMethod===pm.val?"border-green-500 bg-green-900/30 text-white":"border-white/20 bg-white/5 text-gray-400 hover:border-white/30"}`}>
+                  {[
+                    { val: "transfer", label: "🏦 Transfer" },
+                    { val: "cash",     label: "💵 Cash" },
+                    { val: "card",     label: "💳 Card/POS" },
+                    { val: "pending",  label: "⏳ Pay Later" },
+                  ].map(pm => (
+                    <button type="button" key={pm.val} onClick={() => update("paymentMethod", pm.val)}
+                      className={`py-3 rounded-xl text-sm font-semibold transition-all border ${form.paymentMethod === pm.val ? "border-green-500 bg-green-900/30 text-white" : "border-white/20 bg-white/5 text-gray-400 hover:border-white/30"}`}>
                       {pm.label}
                     </button>
                   ))}
                 </div>
+
+                {/* Transfer details */}
+                {form.paymentMethod === "transfer" && (
+                  <div className="space-y-4 mt-2">
+                    {hasBankDetails ? (
+                      <div className="bg-green-900/20 border border-green-500/30 rounded-xl p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Banknote className="w-4 h-4 text-green-400" />
+                          <p className="text-green-300 font-semibold text-sm">Transfer to this account</p>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between"><span className="text-gray-400">Bank</span><span className="text-white font-medium">{bankName}</span></div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-400">Account No.</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-white font-mono font-bold text-base">{bankAccountNumber}</span>
+                              <button type="button" onClick={copyAccountNumber} className="p-1 rounded-lg bg-white/10 hover:bg-white/20 transition-colors">
+                                {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5 text-gray-400" />}
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex justify-between"><span className="text-gray-400">Account Name</span><span className="text-white font-medium">{bankAccountName}</span></div>
+                          <div className="flex justify-between font-bold pt-1 border-t border-green-500/20">
+                            <span className="text-green-300">Amount to Send</span>
+                            <span className="text-green-400 text-base">{formatPrice(orderTotal)}</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-3">⚡ After transferring, fill in the fields below so we can confirm your payment.</p>
+                      </div>
+                    ) : (
+                      <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-4 text-amber-300 text-sm">
+                        ⚠️ Bank details not set up yet. Please contact us for transfer details.
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="text-gray-400 text-sm mb-1.5 block">Which bank did you send from? *</label>
+                      <input
+                        type="text"
+                        value={form.paymentBank}
+                        onChange={(e) => update("paymentBank", e.target.value)}
+                        placeholder="e.g. GTBank, Access, OPay, Palmpay..."
+                        className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-500 focus:outline-none focus:border-green-500 transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-gray-400 text-sm mb-1.5 block">Transaction reference <span className="text-gray-600">(optional)</span></label>
+                      <input
+                        type="text"
+                        value={form.paymentReference}
+                        onChange={(e) => update("paymentReference", e.target.value)}
+                        placeholder="e.g. last 6 digits of reference"
+                        className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-500 focus:outline-none focus:border-green-500 transition-colors"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {form.paymentMethod === "pending" && <p className="text-gray-500 text-xs">💡 Pay when you pick up / we deliver.</p>}
+                {form.paymentMethod === "cash" && <p className="text-gray-500 text-xs">💡 Pay cash on pickup or delivery.</p>}
+                {form.paymentMethod === "card" && <p className="text-gray-500 text-xs">💳 POS available at pickup.</p>}
               </div>
 
+              {/* ── Instructions ─────────────────── */}
               <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-3">
                 <h2 className="text-white font-bold text-lg">Special Instructions <span className="text-gray-500 font-normal text-sm">(optional)</span></h2>
                 <textarea value={form.specialInstructions} onChange={(e) => update("specialInstructions", e.target.value)} placeholder="Allergies, preferences, or any special requests..." rows={3} className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-500 focus:outline-none focus:border-green-500 transition-colors resize-none" />
@@ -156,6 +265,7 @@ export default function CheckoutPage() {
               {error && <div className="p-4 rounded-xl bg-red-900/30 border border-red-500/40 text-red-400 text-sm">{error}</div>}
             </div>
 
+            {/* ── Order Summary ─────────────────── */}
             <div>
               <div className="bg-white/5 border border-white/10 rounded-2xl p-6 sticky top-24 space-y-4">
                 <h2 className="text-white font-bold text-lg">Order Summary</h2>
@@ -173,10 +283,12 @@ export default function CheckoutPage() {
                   {deliveryFee > 0 && <div className="flex justify-between text-gray-300 text-sm"><span>Delivery fee</span><span>{formatPrice(deliveryFee)}</span></div>}
                   <div className="flex justify-between text-white font-bold text-lg"><span>Total</span><span className="text-green-400">{formatPrice(orderTotal)}</span></div>
                 </div>
-                {form.paymentMethod === "pending" && <p className="text-gray-500 text-xs">💡 Payment collected on delivery/pickup</p>}
                 <button type="submit" disabled={loading} className="w-full py-4 rounded-full bg-orange-500 hover:bg-orange-400 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold transition-all flex items-center justify-center gap-2">
-                  {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Placing Order...</> : "Place Order 🚀"}
+                  {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Placing Order...</> : form.paymentMethod === "transfer" ? "Place Order — I've Transferred 🏦" : "Place Order 🚀"}
                 </button>
+                {form.paymentMethod === "transfer" && (
+                  <p className="text-xs text-center text-gray-500">Your order will be confirmed once we verify your transfer.</p>
+                )}
               </div>
             </div>
           </form>

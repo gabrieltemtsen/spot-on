@@ -28,6 +28,9 @@ export const create = mutation({
     subtotal: v.number(),
     deliveryFee: v.optional(v.number()),
     paymentMethod: v.optional(v.union(v.literal("cash"), v.literal("transfer"), v.literal("card"), v.literal("pending"))),
+    paymentStatus: v.optional(v.union(v.literal("unpaid"), v.literal("awaiting_confirmation"), v.literal("confirmed"), v.literal("rejected"))),
+    paymentBank: v.optional(v.string()),
+    paymentReference: v.optional(v.string()),
     source: v.optional(v.union(v.literal("web"), v.literal("walkin"))),
     processedBy: v.optional(v.string()),
     processedByName: v.optional(v.string()),
@@ -205,5 +208,34 @@ export const createWithNotify: any = action({
       });
     }
     return orderId;
+  },
+});
+
+export const confirmPayment = mutation({
+  args: {
+    id: v.id("orders"),
+    confirmedBy: v.optional(v.string()),
+  },
+  handler: async (ctx, { id, confirmedBy }) => {
+    const order = await ctx.db.get(id);
+    if (!order) throw new Error("Order not found");
+    await ctx.db.patch(id, {
+      paymentStatus: "confirmed",
+      paymentConfirmedBy: confirmedBy ?? "admin",
+      paymentConfirmedAt: Date.now(),
+      // Auto-advance order status from pending → confirmed
+      status: order.status === "pending" ? "confirmed" : order.status,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const rejectPayment = mutation({
+  args: { id: v.id("orders") },
+  handler: async (ctx, { id }) => {
+    await ctx.db.patch(id, {
+      paymentStatus: "rejected",
+      updatedAt: Date.now(),
+    });
   },
 });
