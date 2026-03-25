@@ -421,6 +421,7 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
   const [selected, setSelected] = useState<any>(null);
   const [updating, setUpdating] = useState<string|null>(null);
   const [paymentUpdating, setPaymentUpdating] = useState<string|null>(null);
+  const [receiptLightbox, setReceiptLightbox] = useState(false);
   const [riderForm, setRiderForm] = useState({name:"",phone:""});
   const [showRider, setShowRider] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -553,16 +554,23 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
                     {selectedData.paymentBank && <p className="text-gray-400 text-xs">Sent from: <span className="text-white">{selectedData.paymentBank}</span></p>}
                     {/* Receipt image */}
                     {receiptUrl && (
-                      <a href={receiptUrl} target="_blank" rel="noopener noreferrer" className="block rounded-lg overflow-hidden border border-amber-500/30 hover:border-amber-400/60 transition-colors">
-                        <img src={receiptUrl} alt="Transfer receipt" className="w-full max-h-40 object-contain bg-black/40" />
-                        <p className="text-center text-xs text-amber-400 py-1 bg-black/30">Tap to view full receipt</p>
-                      </a>
+                      <button type="button" onClick={()=>setReceiptLightbox(true)}
+                        className="w-full rounded-xl overflow-hidden border border-amber-500/40 hover:border-amber-400 transition-colors group relative">
+                        <img src={receiptUrl} alt="Transfer receipt" className="w-full max-h-48 object-contain bg-black/60" />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
+                          <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/70 text-white text-xs font-semibold px-3 py-1.5 rounded-full">
+                            🔍 View Full Receipt
+                          </span>
+                        </div>
+                      </button>
                     )}
                     {!receiptUrl && selectedData.receiptStorageId && (
-                      <p className="text-gray-500 text-xs">Loading receipt...</p>
+                      <div className="flex items-center gap-2 text-gray-500 text-xs py-2">
+                        <Loader2 className="w-3 h-3 animate-spin"/>Loading receipt...
+                      </div>
                     )}
                     {!selectedData.receiptStorageId && (
-                      <p className="text-gray-500 text-xs italic">No receipt uploaded</p>
+                      <p className="text-gray-600 text-xs italic">No receipt uploaded</p>
                     )}
                     <div className="flex gap-2 pt-1">
                       <button onClick={()=>handleConfirmPayment(selectedData._id)} disabled={paymentUpdating===selectedData._id}
@@ -608,6 +616,31 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
           )}
         </div>
       </div>
+
+      {/* Receipt lightbox */}
+      {receiptLightbox && receiptUrl && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={()=>setReceiptLightbox(false)}>
+          <div className="relative max-w-lg w-full" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-white font-semibold">Transfer Receipt — {selectedData?.orderNumber}</p>
+              <button onClick={()=>setReceiptLightbox(false)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors">
+                <X className="w-5 h-5"/>
+              </button>
+            </div>
+            <img src={receiptUrl} alt="Transfer receipt" className="w-full rounded-2xl object-contain max-h-[70vh] bg-black/60 border border-white/10"/>
+            <div className="flex gap-3 mt-4">
+              <button onClick={()=>{handleConfirmPayment(selectedData._id);setReceiptLightbox(false);}} disabled={paymentUpdating===selectedData?._id}
+                className="flex-1 py-3 rounded-full bg-green-700 hover:bg-green-600 text-white font-bold disabled:opacity-60 flex items-center justify-center gap-2">
+                <CheckCircle2 className="w-4 h-4"/>Confirm Payment
+              </button>
+              <button onClick={()=>{handleRejectPayment(selectedData._id);setReceiptLightbox(false);}} disabled={paymentUpdating===selectedData?._id}
+                className="flex-1 py-3 rounded-full bg-red-900/40 hover:bg-red-800/50 text-red-300 font-bold disabled:opacity-60 flex items-center justify-center gap-2">
+                <XCircle className="w-4 h-4"/>Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Rider modal */}
       {showRider&&(
