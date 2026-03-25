@@ -414,14 +414,14 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
   const assignRider = useMutation(api.orders.assignRider);
   const confirmPayment = useMutation(api.orders.confirmPayment);
   const rejectPayment = useMutation(api.orders.rejectPayment);
-  const receiptUrl = useQuery(
-    api.orders.getReceiptUrl,
-    selected ? { id: selected._id } : "skip"
-  );
   const [selected, setSelected] = useState<any>(null);
   const [updating, setUpdating] = useState<string|null>(null);
   const [paymentUpdating, setPaymentUpdating] = useState<string|null>(null);
   const [receiptLightbox, setReceiptLightbox] = useState(false);
+  const receiptUrl = useQuery(
+    api.orders.getReceiptUrl,
+    selected ? { id: selected._id } : "skip"
+  );
   const [riderForm, setRiderForm] = useState({name:"",phone:""});
   const [showRider, setShowRider] = useState(false);
   const [copied, setCopied] = useState(false);
