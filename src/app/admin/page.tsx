@@ -240,6 +240,17 @@ function PosTab({
   const [catFilter, setCatFilter] = useState("all");
   const [search, setSearch] = useState("");
 
+  const existingCustomer = useQuery(
+    api.customers.getByPhone,
+    customerPhone.trim() ? { phone: customerPhone.trim() } : "skip"
+  );
+
+  useEffect(() => {
+    if (existingCustomer?.name) {
+      setCustomerName(existingCustomer.name);
+    }
+  }, [existingCustomer]);
+
   // Accept preloaded cart from Customers tab "Re-order"
   useEffect(() => {
     if (preload && preload.length > 0) {
