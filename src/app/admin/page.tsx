@@ -362,9 +362,9 @@ function PosTab({
 
         <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
           <h3 className="text-white font-bold">Current Sale</h3>
-          <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Customer name (optional)"
+          <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="Phone number (optional — saves to CRM)" maxLength={11}
             className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
-          <input value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder="Phone number (optional — saves to CRM)"
+          <input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Customer name (optional)"
             className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
           {customerPhone.trim() && (
             <p className="text-green-400 text-xs -mt-1 flex items-center gap-1">
