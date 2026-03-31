@@ -71,6 +71,7 @@ function PinLogin({ onLogin }: { onLogin:(m:TeamMember)=>void }) {
 
   useEffect(() => {
     if (pin.length === 6) {
+      if (member === undefined) return; // Wait for query to complete
       if (member) { onLogin(member); setPin(""); setError(""); }
       else { setError("Invalid PIN"); setTimeout(()=>{ setPin(""); setError(""); }, 1200); }
     }
@@ -98,9 +99,6 @@ function PinLogin({ onLogin }: { onLogin:(m:TeamMember)=>void }) {
             </button>
           ))}
         </div>
-        <button onClick={()=>seedOwner({})} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
-          First time? Seed owner (PIN: 123400)
-        </button>
       </div>
     </main>
   );
