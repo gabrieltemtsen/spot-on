@@ -146,6 +146,7 @@ function printReceipt(order: any, settings?: Record<string,string>) {
 
 // ── Main Admin ─────────────────────────────────────────────────
 export default function AdminPage() {
+  const [mounted, setMounted] = useState(false);
   const [user, setUser] = useState<TeamMember|null>(null);
   const [tab, setTab] = useState<TabId>("pos");
   const siteSettings = useQuery(api.settings.getAll, {});
@@ -155,6 +156,7 @@ export default function AdminPage() {
   useEffect(() => {
     const saved = localStorage.getItem("spoton-user");
     if (saved) try { setUser(JSON.parse(saved)); } catch { /**/ }
+    setMounted(true);
   }, []);
 
   function handleLogin(m: TeamMember) {
@@ -166,6 +168,14 @@ export default function AdminPage() {
   function handleLogout() {
     setUser(null);
     localStorage.removeItem("spoton-user");
+  }
+
+  if (!mounted) {
+    return (
+      <main className="bg-[#081C15] min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-green-500 animate-spin" />
+      </main>
+    );
   }
 
   if (!user) return <PinLogin onLogin={handleLogin} />;
