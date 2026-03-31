@@ -56,6 +56,8 @@ export async function POST(req: NextRequest) {
     resolvedSubtotal !== null ? `Subtotal: ₦${resolvedSubtotal.toLocaleString("en-NG")}` : null,
     resolvedDeliveryFee ? `Delivery fee: ₦${resolvedDeliveryFee.toLocaleString("en-NG")}` : null,
     resolvedTotal !== null ? `Total: ₦${resolvedTotal.toLocaleString("en-NG")}` : null,
+    ``,
+    `👉 Manage: ${req.nextUrl.origin}/admin`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -87,6 +89,8 @@ export async function POST(req: NextRequest) {
     resolvedSubtotal !== null ? `*Subtotal: ₦${resolvedSubtotal.toLocaleString("en-NG")}*` : null,
     resolvedDeliveryFee ? `*Delivery fee: ₦${resolvedDeliveryFee.toLocaleString("en-NG")}*` : null,
     resolvedTotal !== null ? `*Total: ₦${resolvedTotal.toLocaleString("en-NG")}*` : null,
+    ``,
+    `👉 Manage: ${req.nextUrl.origin}/admin`,
   ]
     .filter(Boolean)
     .join("\n");

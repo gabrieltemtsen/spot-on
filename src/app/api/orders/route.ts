@@ -41,6 +41,8 @@ export async function POST(req: NextRequest) {
         `Subtotal: ₦${Number(order.subtotal).toLocaleString("en-NG")}`,
         order.specialInstructions ? `Notes: ${order.specialInstructions}` : null,
         `Time: ${new Date(order.createdAt).toLocaleString("en-NG")}`,
+        ``,
+        `👉 Manage: ${req.nextUrl.origin}/admin`,
       ].filter(Boolean) as string[];
 
       const msg = lines.join("\n");
