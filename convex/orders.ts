@@ -84,13 +84,35 @@ export const create = mutation({
 export const updateStatus = mutation({
   args: { id: v.id("orders"), status: statusValues },
   handler: async (ctx, { id, status }) => {
-    if (status === "cancelled") {
-      const order = await ctx.db.get(id);
-      if (order?.receiptStorageId) {
+    const order = await ctx.db.get(id);
+    if (!order) return;
+
+    if (order.status !== status) {
+      const total = (order.subtotal ?? 0) + (order.deliveryFee ?? 0);
+      const customer = await ctx.db.query("customers").withIndex("by_phone", q => q.eq("phone", order.customerPhone)).first();
+
+      if (customer) {
+        if (status === "cancelled") {
+          await ctx.db.patch(customer._id, {
+            totalOrders: Math.max(0, customer.totalOrders - 1),
+            totalSpend: Math.max(0, customer.totalSpend - total),
+          });
+        } else if (order.status === "cancelled") {
+          await ctx.db.patch(customer._id, {
+            totalOrders: customer.totalOrders + 1,
+            totalSpend: customer.totalSpend + total,
+          });
+        }
+      }
+    }
+
+    if (status === "cancelled" && order.status !== "cancelled") {
+      if (order.receiptStorageId) {
         try { await ctx.storage.delete(order.receiptStorageId); } catch { /**/ }
         await ctx.db.patch(id, { receiptStorageId: undefined });
       }
     }
+    
     return ctx.db.patch(id, { status, updatedAt: Date.now() });
   },
 });
