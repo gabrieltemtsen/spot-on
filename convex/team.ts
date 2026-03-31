@@ -49,7 +49,7 @@ export const seedOwner = mutation({
   handler: async (ctx) => {
     const existing = await ctx.db.query("teamMembers").first();
     if (existing) return { seeded: false };
-    await ctx.db.insert("teamMembers", { name: "Owner", pin: "1234", role: "admin", active: true, createdAt: Date.now() });
+    await ctx.db.insert("teamMembers", { name: "Owner", pin: "123400", role: "admin", active: true, createdAt: Date.now() });
     return { seeded: true };
   },
 });

@@ -13,6 +13,7 @@ import type * as expenses from "../expenses.js";
 import type * as orders from "../orders.js";
 import type * as products from "../products.js";
 import type * as settings from "../settings.js";
+import type * as setup from "../setup.js";
 import type * as team from "../team.js";
 
 import type {
@@ -27,6 +28,7 @@ declare const fullApi: ApiFromModules<{
   orders: typeof orders;
   products: typeof products;
   settings: typeof settings;
+  setup: typeof setup;
   team: typeof team;
 }>;
 

@@ -66,11 +66,11 @@ function ProductThumb({ product, size = "md" }: { product: any; size?: "sm"|"md"
 function PinLogin({ onLogin }: { onLogin:(m:TeamMember)=>void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
-  const member = useQuery(api.team.verifyPin, { pin: pin.length === 4 ? pin : "----" });
+  const member = useQuery(api.team.verifyPin, { pin: pin.length === 6 ? pin : "------" });
   const seedOwner = useMutation(api.team.seedOwner);
 
   useEffect(() => {
-    if (pin.length === 4) {
+    if (pin.length === 6) {
       if (member) { onLogin(member); setPin(""); setError(""); }
       else { setError("Invalid PIN"); setTimeout(()=>{ setPin(""); setError(""); }, 1200); }
     }
@@ -81,8 +81,8 @@ function PinLogin({ onLogin }: { onLogin:(m:TeamMember)=>void }) {
     <main className="bg-[#081C15] min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-xs space-y-6 text-center">
         <div><span className="text-5xl block mb-2">🍊</span><h1 className="text-2xl font-extrabold text-white">Spot-On Staff</h1><p className="text-gray-400 text-sm mt-1">Enter your PIN</p></div>
-        <div className="flex justify-center gap-3">
-          {[0,1,2,3].map(i=>(
+        <div className="flex justify-center gap-2">
+          {[0,1,2,3,4,5].map(i=>(
             <div key={i} className={`w-4 h-4 rounded-full border-2 ${i<pin.length?"bg-green-400 border-green-400":"border-white/30"}`} />
           ))}
         </div>
@@ -91,7 +91,7 @@ function PinLogin({ onLogin }: { onLogin:(m:TeamMember)=>void }) {
           {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k,i)=>(
             <button key={i} onClick={()=>{
               if(k==="⌫") setPin(p=>p.slice(0,-1));
-              else if(k!==""&&pin.length<4) setPin(p=>p+k);
+              else if(k!==""&&pin.length<6) setPin(p=>p+k);
             }}
             className={`h-14 rounded-xl font-bold text-xl transition-all active:scale-95 ${k===""?"invisible":"bg-white/10 hover:bg-white/20 text-white"}`}>
               {k}
@@ -99,7 +99,7 @@ function PinLogin({ onLogin }: { onLogin:(m:TeamMember)=>void }) {
           ))}
         </div>
         <button onClick={()=>seedOwner({})} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
-          First time? Seed owner (PIN: 1234)
+          First time? Seed owner (PIN: 123400)
         </button>
       </div>
     </main>
@@ -1020,7 +1020,7 @@ function TeamTab() {
           <button onClick={()=>setShowForm(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-green-700 text-white text-sm font-bold hover:bg-green-600"><Plus className="w-4 h-4"/>Add Member</button>
         </div>
       </div>
-      <p className="text-gray-400 text-sm">Each member logs in with their 4-digit PIN. <span className="text-yellow-400">Admin</span> has full access. <span className="text-blue-400">Cashier</span> can only use Quick Sale + Orders.</p>
+      <p className="text-gray-400 text-sm">Each member logs in with their 6-digit PIN. <span className="text-yellow-400">Admin</span> has full access. <span className="text-blue-400">Cashier</span> can only use Quick Sale + Orders.</p>
 
       {!members?<div className="flex items-center gap-2 text-gray-400"><Loader2 className="w-4 h-4 animate-spin"/>Loading...</div>:(
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1051,7 +1051,7 @@ function TeamTab() {
             <form onSubmit={handleAdd} className="bg-[#0d1f17] border border-white/10 rounded-2xl p-6 w-full max-w-sm space-y-4">
               <h3 className="text-white font-bold text-lg">Add Team Member</h3>
               <input required value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Full name" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500"/>
-              <input required value={form.pin} onChange={e=>setForm(f=>({...f,pin:e.target.value.slice(0,4)}))} placeholder="4-digit PIN" maxLength={4} pattern="\d{4}" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500 font-mono tracking-widest text-center text-xl"/>
+              <input required value={form.pin} onChange={e=>setForm(f=>({...f,pin:e.target.value.slice(0,6)}))} placeholder="6-digit PIN" maxLength={6} pattern="\d{6}" className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500 font-mono tracking-widest text-center text-xl"/>
               <select value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value as Role}))} className="w-full px-3 py-2.5 rounded-xl bg-[#0a1a10] border border-white/20 text-white text-sm focus:outline-none focus:border-green-500">
                 <option value="cashier">Cashier (Quick Sale + Orders only)</option>
                 <option value="admin">Admin (Full access)</option>

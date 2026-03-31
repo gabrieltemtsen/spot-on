@@ -81,7 +81,7 @@ export default defineSchema({
 
   teamMembers: defineTable({
     name: v.string(),
-    pin: v.string(), // 4-digit PIN (stored as string)
+    pin: v.string(), // 6-digit PIN (stored as string)
     role: v.union(v.literal("admin"), v.literal("cashier")),
     active: v.boolean(),
     createdAt: v.number(),

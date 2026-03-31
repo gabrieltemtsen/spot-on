@@ -37,7 +37,7 @@ export const create = mutation({
     status: v.optional(statusValues),
   },
   handler: async (ctx, args) => {
-    const orderNumber = `SO-${Date.now().toString().slice(-6)}`;
+    const orderNumber = `SO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     const now = Date.now();
     const total = (args.subtotal ?? 0) + (args.deliveryFee ?? 0);
     const orderId = await ctx.db.insert("orders", {
@@ -83,7 +83,16 @@ export const create = mutation({
 
 export const updateStatus = mutation({
   args: { id: v.id("orders"), status: statusValues },
-  handler: async (ctx, { id, status }) => ctx.db.patch(id, { status, updatedAt: Date.now() }),
+  handler: async (ctx, { id, status }) => {
+    if (status === "cancelled") {
+      const order = await ctx.db.get(id);
+      if (order?.receiptStorageId) {
+        try { await ctx.storage.delete(order.receiptStorageId); } catch { /**/ }
+        await ctx.db.patch(id, { receiptStorageId: undefined });
+      }
+    }
+    return ctx.db.patch(id, { status, updatedAt: Date.now() });
+  },
 });
 
 export const assignRider = mutation({
