@@ -1,7 +1,7 @@
 // @ts-nocheck
 "use client";
-import { useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useRef, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -9,9 +9,64 @@ import Navbar from "@/components/Navbar";
 import CartDrawer from "@/components/CartDrawer";
 import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/menu";
-import { Loader2, MapPin, Store, CheckCircle2, Copy, Check, Banknote, Upload, X, ImageIcon } from "lucide-react";
+import { Loader2, MapPin, Store, CheckCircle2, Copy, Check, Banknote, Upload, X, ImageIcon, Tag } from "lucide-react";
 
-const DELIVERY_FEE = 500;
+function getDeliveryFee(settings: any) {
+  const raw = settings?.defaultDeliveryFee;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 500;
+}
+
+type PromoRule =
+  | { code: string; type: "percent"; value: number; active?: boolean; description?: string }
+  | { code: string; type: "amount"; value: number; active?: boolean; description?: string }
+  | { code: string; type: "free_delivery"; active?: boolean; description?: string };
+
+function parsePromoRules(settings: any): PromoRule[] {
+  try {
+    const raw = settings?.promoRules ?? "[]";
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter(Boolean)
+      .map((r: any) => ({ ...r, code: String(r.code ?? "").trim() }))
+      .filter((r: any) => r.code);
+  } catch {
+    return [];
+  }
+}
+
+function findPromoRule(rules: PromoRule[], code: string): PromoRule | null {
+  const c = (code ?? "").trim().toLowerCase();
+  if (!c) return null;
+  return (rules.find((r) => r.code.toLowerCase() === c && (r as any).active !== false) as PromoRule) ?? null;
+}
+
+function computeDiscount({
+  rule,
+  subtotal,
+  deliveryFee,
+}: {
+  rule: PromoRule | null;
+  subtotal: number;
+  deliveryFee: number;
+}): { discountAmount: number; freeDelivery: boolean; description?: string } {
+  if (!rule) return { discountAmount: 0, freeDelivery: false };
+  if (rule.type === "free_delivery") {
+    return { discountAmount: deliveryFee, freeDelivery: true, description: rule.description ?? "Free delivery" };
+  }
+  if (rule.type === "percent") {
+    const pct = Math.max(0, Math.min(100, Number(rule.value) || 0));
+    const discountAmount = Math.round((subtotal * pct) / 100);
+    return { discountAmount, freeDelivery: false, description: rule.description ?? `${pct}% off` };
+  }
+  if (rule.type === "amount") {
+    const amt = Math.max(0, Number(rule.value) || 0);
+    const discountAmount = Math.min(subtotal + deliveryFee, amt);
+    return { discountAmount, freeDelivery: false, description: rule.description ?? `${formatPrice(discountAmount)} off` };
+  }
+  return { discountAmount: 0, freeDelivery: false };
+}
 
 function saveOrderToLocalStorage(orderId: string, orderNumber: string, customerName: string) {
   try {
@@ -22,8 +77,9 @@ function saveOrderToLocalStorage(orderId: string, orderNumber: string, customerN
   } catch { /* silent */ }
 }
 
-export default function CheckoutPage() {
+function CheckoutInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { items, total, clearCart } = useCart();
   const createOrder = useMutation(api.orders.create);
   const saveReceiptStorageId = useMutation(api.orders.saveReceiptStorageId);
@@ -38,6 +94,7 @@ export default function CheckoutPage() {
     specialInstructions: "",
     paymentMethod: "transfer" as "pending" | "cash" | "transfer" | "card",
     paymentBank: "",
+    promoCode: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -53,9 +110,24 @@ export default function CheckoutPage() {
     setForm((f) => ({ ...f, [field]: val }));
   }
 
+  const promoRules = parsePromoRules(settings);
+  const initialPromoFromUrl = (searchParams?.get("promo") ?? "").trim();
+
+  // If the user lands with ?promo=CODE, pre-fill it once.
+  useEffect(() => {
+    if (!initialPromoFromUrl) return;
+    setForm((f) => (f.promoCode ? f : { ...f, promoCode: initialPromoFromUrl }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPromoFromUrl]);
+
   const subtotal = total();
-  const deliveryFee = form.deliveryType === "delivery" ? DELIVERY_FEE : 0;
-  const orderTotal = subtotal + deliveryFee;
+  const baseDeliveryFee = getDeliveryFee(settings);
+  const deliveryFee = form.deliveryType === "delivery" ? baseDeliveryFee : 0;
+
+  const rule = findPromoRule(promoRules, form.promoCode);
+  const { discountAmount, description: discountDescription } = computeDiscount({ rule, subtotal, deliveryFee });
+
+  const orderTotal = Math.max(0, subtotal + deliveryFee - discountAmount);
 
   const bankName = settings?.bankName || "";
   const bankAccountNumber = settings?.bankAccountNumber || "";
@@ -102,6 +174,9 @@ export default function CheckoutPage() {
         items: items.map(({ item, quantity }) => ({ productId: item.id, name: item.name, price: item.price, quantity, emoji: item.emoji })),
         subtotal,
         deliveryFee: deliveryFee || undefined,
+        promoCode: form.promoCode?.trim() ? form.promoCode.trim().toUpperCase() : undefined,
+        discountAmount: discountAmount || undefined,
+        discountDescription: discountDescription || undefined,
         paymentMethod: form.paymentMethod,
         paymentStatus: form.paymentMethod === "transfer" ? "awaiting_confirmation" : "unpaid",
         paymentBank: form.paymentBank || undefined,
@@ -138,6 +213,8 @@ export default function CheckoutPage() {
           items: items.map(({ item, quantity }) => ({ name: item.name, quantity, price: item.price, emoji: item.emoji })),
           subtotal,
           deliveryFee,
+          discountAmount,
+          promoCode: form.promoCode?.trim() ? form.promoCode.trim().toUpperCase() : undefined,
           total: orderTotal,
           deliveryType: form.deliveryType,
           deliveryAddress: form.deliveryAddress,
@@ -193,7 +270,7 @@ export default function CheckoutPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
                     { value: "pickup", label: "Pickup", desc: "Come pick it up — free", icon: <Store className="w-5 h-5" /> },
-                    { value: "delivery", label: "Delivery", desc: `We bring it to you (+${formatPrice(DELIVERY_FEE)})`, icon: <MapPin className="w-5 h-5" /> },
+                    { value: "delivery", label: "Delivery", desc: `We bring it to you (+${formatPrice(baseDeliveryFee)})`, icon: <MapPin className="w-5 h-5" /> },
                   ].map((opt) => (
                     <button type="button" key={opt.value} onClick={() => update("deliveryType", opt.value)}
                       className={`flex items-center gap-4 p-4 rounded-xl border transition-all text-left ${form.deliveryType === opt.value ? "border-green-500 bg-green-900/30 text-white" : "border-white/20 bg-white/5 text-gray-400 hover:border-white/30"}`}>
@@ -339,9 +416,45 @@ export default function CheckoutPage() {
                     </div>
                   ))}
                 </div>
-                <div className="border-t border-white/10 pt-3 space-y-2">
+                <div className="border-t border-white/10 pt-3 space-y-3">
                   <div className="flex justify-between text-gray-300 text-sm"><span>Subtotal</span><span>{formatPrice(subtotal)}</span></div>
                   {deliveryFee > 0 && <div className="flex justify-between text-gray-300 text-sm"><span>Delivery fee</span><span>{formatPrice(deliveryFee)}</span></div>}
+
+                  {/* Promo code */}
+                  <div className="space-y-2">
+                    <label className="text-gray-400 text-xs font-medium">Promo code (from your card)</label>
+                    <div className="flex gap-2">
+                      <input
+                        value={form.promoCode}
+                        onChange={(e) => update("promoCode", e.target.value)}
+                        placeholder="e.g. FRESH10"
+                        className="flex-1 px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-green-500 transition-colors"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => update("promoCode", form.promoCode.trim().toUpperCase())}
+                        className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-gray-200 text-sm font-semibold transition-colors"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                    {form.promoCode.trim() && !rule && (
+                      <p className="text-xs text-red-400">Promo code not recognised.</p>
+                    )}
+                    {rule && (
+                      <p className="text-xs text-green-400 flex items-center gap-1">
+                        <Tag className="w-3.5 h-3.5" /> Applied: {form.promoCode.trim().toUpperCase()} {discountDescription ? `— ${discountDescription}` : ""}
+                      </p>
+                    )}
+                  </div>
+
+                  {discountAmount > 0 && (
+                    <div className="flex justify-between text-gray-300 text-sm">
+                      <span>Discount</span>
+                      <span className="text-green-400">- {formatPrice(discountAmount)}</span>
+                    </div>
+                  )}
+
                   <div className="flex justify-between text-white font-bold text-lg"><span>Total</span><span className="text-green-400">{formatPrice(orderTotal)}</span></div>
                 </div>
                 <button type="submit" disabled={loading} className="w-full py-4 rounded-full bg-orange-500 hover:bg-orange-400 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold transition-all flex items-center justify-center gap-2">
@@ -359,5 +472,19 @@ export default function CheckoutPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function CheckoutPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="bg-[#081C15] min-h-screen flex items-center justify-center">
+          <Loader2 className="w-8 h-8 text-green-500 animate-spin" />
+        </main>
+      }
+    >
+      <CheckoutInner />
+    </Suspense>
   );
 }

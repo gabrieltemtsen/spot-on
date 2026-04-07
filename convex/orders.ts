@@ -31,6 +31,11 @@ export const create = mutation({
     paymentStatus: v.optional(v.union(v.literal("unpaid"), v.literal("awaiting_confirmation"), v.literal("confirmed"), v.literal("rejected"))),
     paymentBank: v.optional(v.string()),
     receiptStorageId: v.optional(v.string()),
+
+    promoCode: v.optional(v.string()),
+    discountAmount: v.optional(v.number()),
+    discountDescription: v.optional(v.string()),
+
     source: v.optional(v.union(v.literal("web"), v.literal("walkin"))),
     processedBy: v.optional(v.string()),
     processedByName: v.optional(v.string()),
@@ -39,7 +44,8 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const orderNumber = `SO-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     const now = Date.now();
-    const total = (args.subtotal ?? 0) + (args.deliveryFee ?? 0);
+    const discount = Math.max(0, args.discountAmount ?? 0);
+    const total = Math.max(0, (args.subtotal ?? 0) + (args.deliveryFee ?? 0) - discount);
     const orderId = await ctx.db.insert("orders", {
       ...args,
       orderNumber,

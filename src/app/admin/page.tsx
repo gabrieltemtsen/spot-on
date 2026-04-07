@@ -133,6 +133,7 @@ function printReceipt(order: any, settings?: Record<string,string>) {
     <table>${items}</table>
     <div class="divider"></div>
     ${order.deliveryFee ? `<p style="text-align:right">Delivery: ₦${order.deliveryFee.toLocaleString()}</p>` : ""}
+    ${order.discountAmount ? `<p style="text-align:right">Discount${order.promoCode ? ` (${order.promoCode})` : ""}: -₦${order.discountAmount.toLocaleString()}</p>` : ""}
     <p class="total" style="text-align:right">TOTAL: ₦${(order.total??order.subtotal).toLocaleString()}</p>
     ${order.paymentMethod ? `<p style="text-align:right">Paid: ${order.paymentMethod.toUpperCase()}</p>` : ""}
     <div class="divider"></div>
@@ -1400,6 +1401,12 @@ function SettingsTab() {
   const [catSaving, setCatSaving] = useState(false);
   const [catSaved, setCatSaved] = useState(false);
 
+  // Promo rules
+  const [promoRulesText, setPromoRulesText] = useState("[]");
+  const [promoSaving, setPromoSaving] = useState(false);
+  const [promoSaved, setPromoSaved] = useState(false);
+  const [promoError, setPromoError] = useState<string | null>(null);
+
   // Load settings into form when data arrives
   useEffect(() => {
     if (!siteSettings) return;
@@ -1422,6 +1429,10 @@ function SettingsTab() {
     } catch {
       setExpCats(DEFAULT_EXPENSE_CATS);
     }
+
+    // Promo rules JSON
+    setPromoRulesText(siteSettings.promoRules ?? "[]");
+    setPromoError(null);
   }, [siteSettings]);
 
   async function saveBizInfo(e: React.FormEvent) {
@@ -1446,6 +1457,31 @@ function SettingsTab() {
       await setSetting({ entries: [{ key: "expenseCategories", value: JSON.stringify(expCats) }] });
       setCatSaved(true); setTimeout(()=>setCatSaved(false), 2000);
     } finally { setCatSaving(false); }
+  }
+
+  async function savePromoRules(e?: React.FormEvent) {
+    e?.preventDefault();
+    setPromoSaving(true);
+    try {
+      // Validate JSON
+      const parsed = JSON.parse(promoRulesText || "[]");
+      if (!Array.isArray(parsed)) throw new Error("promoRules must be a JSON array");
+      // Basic shape sanity check
+      for (const r of parsed) {
+        if (!r || typeof r !== "object") throw new Error("Each promo rule must be an object");
+        if (!r.code || typeof r.code !== "string") throw new Error("Each promo rule needs a string 'code'");
+        if (!r.type || typeof r.type !== "string") throw new Error("Each promo rule needs a string 'type'");
+      }
+
+      await setSetting({ entries: [{ key: "promoRules", value: JSON.stringify(parsed) }] });
+      setPromoSaved(true);
+      setPromoError(null);
+      setTimeout(() => setPromoSaved(false), 2000);
+    } catch (err: any) {
+      setPromoError(err?.message ?? "Invalid JSON");
+    } finally {
+      setPromoSaving(false);
+    }
   }
 
   function addCat() {
@@ -1517,6 +1553,48 @@ function SettingsTab() {
             {bizSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : bizSaved ? <Check className="w-4 h-4 text-green-300"/> : <Save className="w-4 h-4"/>}
             {bizSaved ? "Saved!" : "Save Business Info"}
           </button>
+        </form>
+      </section>
+
+      {/* ── Promo Codes ── */}
+      <section className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <Tag className="w-5 h-5 text-green-400" />
+          <h3 className="text-white font-bold">Promo Codes</h3>
+        </div>
+        <p className="text-gray-400 text-sm">
+          Promo cards can include a QR link like <span className="text-gray-200 font-mono">https://www.spotonjuice.com/menu?promo=FRESH10</span>.
+          Customers can also type the code at checkout.
+        </p>
+
+        <form onSubmit={savePromoRules} className="space-y-3">
+          <label className="text-gray-400 text-xs font-medium">promoRules (JSON array)</label>
+          <textarea
+            value={promoRulesText}
+            onChange={(e) => setPromoRulesText(e.target.value)}
+            rows={8}
+            className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-xs font-mono focus:outline-none focus:border-green-500"
+            placeholder='[{"code":"FRESH10","type":"percent","value":10,"active":true,"description":"10% off"}]'
+          />
+          {promoError && <p className="text-xs text-red-400">{promoError}</p>}
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="submit"
+              disabled={promoSaving}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-green-700 hover:bg-green-600 text-white text-sm font-bold disabled:opacity-60 transition-all"
+            >
+              {promoSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : promoSaved ? <Check className="w-4 h-4 text-green-300" /> : <Save className="w-4 h-4" />}
+              {promoSaved ? "Saved!" : "Save Promo Rules"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPromoRulesText('[{"code":"FRESH10","type":"percent","value":10,"active":true,"description":"10% off"},{"code":"FREEDEL","type":"free_delivery","active":true,"description":"Free delivery"}]')}
+              className="px-4 py-2.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-gray-200 text-sm font-semibold transition-colors"
+            >
+              Insert Example
+            </button>
+          </div>
         </form>
       </section>
 
