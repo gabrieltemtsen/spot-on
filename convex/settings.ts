@@ -13,6 +13,9 @@ export const DEFAULTS: Record<string, string> = {
     "ingredients", "rent", "transport", "packaging",
     "staff", "utilities", "marketing", "misc"
   ]),
+  // Promo rules as JSON array. Example:
+  // [{"code":"FRESH10","type":"percent","value":10,"active":true},{"code":"FREEDEL","type":"free_delivery","active":true}]
+  promoRules: "[]", 
   // Bank transfer details shown to customers at checkout
   bankName: "Moniepoint",
   bankAccountNumber: "5920059782",

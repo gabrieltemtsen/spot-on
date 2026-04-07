@@ -154,7 +154,7 @@ export default function OrderPage() {
                   {order.paymentStatus !== "confirmed" && order.paymentStatus !== "rejected" && (
                     <div className="mt-3 bg-black/20 rounded-xl p-3 text-xs text-gray-400 space-y-1">
                       {settings?.bankAccountNumber && <p>Account: <span className="text-white font-mono">{settings.bankAccountNumber}</span> · {settings.bankName}</p>}
-                      <p>Amount: <span className="text-white font-bold">{formatPrice((order.subtotal ?? 0) + (order.deliveryFee ?? 0))}</span></p>
+                      <p>Amount: <span className="text-white font-bold">{formatPrice(order.total ?? ((order.subtotal ?? 0) + (order.deliveryFee ?? 0) - (order.discountAmount ?? 0)))}</span></p>
                       <p className="text-gray-500">This page updates automatically. Check back in a moment.</p>
                     </div>
                   )}
@@ -177,8 +177,14 @@ export default function OrderPage() {
                     <span className="text-white font-medium">{formatPrice(item.price * item.quantity)}</span>
                   </div>
                 ))}
-                <div className="flex justify-between font-bold text-white pt-2 border-t border-white/10">
-                  <span>Total</span><span className="text-green-400">{formatPrice(order.subtotal)}</span>
+
+                <div className="pt-2 border-t border-white/10 space-y-1 text-sm">
+                  <div className="flex justify-between text-gray-300"><span>Subtotal</span><span>{formatPrice(order.subtotal)}</span></div>
+                  {order.deliveryFee ? <div className="flex justify-between text-gray-300"><span>Delivery fee</span><span>{formatPrice(order.deliveryFee)}</span></div> : null}
+                  {order.discountAmount ? <div className="flex justify-between text-gray-300"><span>Discount{order.promoCode ? ` (${order.promoCode})` : ""}</span><span className="text-green-400">- {formatPrice(order.discountAmount)}</span></div> : null}
+                  <div className="flex justify-between font-bold text-white text-base pt-1">
+                    <span>Total</span><span className="text-green-400">{formatPrice(order.total ?? (order.subtotal + (order.deliveryFee ?? 0) - (order.discountAmount ?? 0)))}</span>
+                  </div>
                 </div>
               </div>
               {order.specialInstructions && (

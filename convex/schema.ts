@@ -49,6 +49,12 @@ export default defineSchema({
     receiptStorageId: v.optional(v.string()),      // Convex storage ID of receipt screenshot
     paymentConfirmedBy: v.optional(v.string()),
     paymentConfirmedAt: v.optional(v.number()),
+
+    // Promo/discount
+    promoCode: v.optional(v.string()),
+    discountAmount: v.optional(v.number()),
+    discountDescription: v.optional(v.string()),
+
     source: v.optional(v.union(v.literal("web"), v.literal("walkin"))),
     processedBy: v.optional(v.string()), // team member id
     processedByName: v.optional(v.string()),

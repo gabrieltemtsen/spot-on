@@ -25,6 +25,8 @@ export async function POST(req: NextRequest) {
     items,
     subtotal,
     deliveryFee,
+    discountAmount,
+    promoCode,
     total,
     deliveryType,
     deliveryAddress,
@@ -39,6 +41,7 @@ export async function POST(req: NextRequest) {
 
   const resolvedSubtotal = typeof subtotal === "number" ? subtotal : null;
   const resolvedDeliveryFee = typeof deliveryFee === "number" ? deliveryFee : null;
+  const resolvedDiscount = typeof discountAmount === "number" ? discountAmount : null;
   const resolvedTotal = typeof total === "number" ? total : resolvedSubtotal;
 
   const messagePlain = [
@@ -55,6 +58,7 @@ export async function POST(req: NextRequest) {
     ``,
     resolvedSubtotal !== null ? `Subtotal: ₦${resolvedSubtotal.toLocaleString("en-NG")}` : null,
     resolvedDeliveryFee ? `Delivery fee: ₦${resolvedDeliveryFee.toLocaleString("en-NG")}` : null,
+    resolvedDiscount ? `Discount${promoCode ? ` (${promoCode})` : ""}: -₦${resolvedDiscount.toLocaleString("en-NG")}` : null,
     resolvedTotal !== null ? `Total: ₦${resolvedTotal.toLocaleString("en-NG")}` : null,
     ``,
     `👉 Manage: ${req.nextUrl.origin}/admin`,
@@ -88,6 +92,7 @@ export async function POST(req: NextRequest) {
     ``,
     resolvedSubtotal !== null ? `*Subtotal: ₦${resolvedSubtotal.toLocaleString("en-NG")}*` : null,
     resolvedDeliveryFee ? `*Delivery fee: ₦${resolvedDeliveryFee.toLocaleString("en-NG")}*` : null,
+    resolvedDiscount ? `*Discount${promoCode ? ` (${promoCode})` : ""}: -₦${resolvedDiscount.toLocaleString("en-NG")}*` : null,
     resolvedTotal !== null ? `*Total: ₦${resolvedTotal.toLocaleString("en-NG")}*` : null,
     ``,
     `👉 Manage: ${req.nextUrl.origin}/admin`,
