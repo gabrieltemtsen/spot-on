@@ -1394,7 +1394,7 @@ function SettingsTab() {
   const setSetting   = useMutation(api.settings.setBulk);
 
   // Business info
-  const [bizForm, setBizForm] = useState({ businessName:"", businessTagline:"", businessAddress:"", businessPhone:"", receiptFooter:"", defaultDeliveryFee:"" });
+  const [bizForm, setBizForm] = useState({ businessName:"", businessTagline:"", businessAddress:"", businessPhone:"", receiptFooter:"", defaultDeliveryFee:"", isStoreClosed:"false" });
   const [bizSaving, setBizSaving] = useState(false);
   const [bizSaved, setBizSaved] = useState(false);
 
@@ -1419,6 +1419,7 @@ function SettingsTab() {
       businessPhone:     siteSettings.businessPhone     ?? "",
       receiptFooter:     siteSettings.receiptFooter     ?? "Thank you! Come again 🙏",
       defaultDeliveryFee:siteSettings.defaultDeliveryFee?? "500",
+      isStoreClosed:     siteSettings.isStoreClosed     ?? "false",
     });
     setBankForm({
       bankName:          siteSettings.bankName          ?? "",
@@ -1519,6 +1520,14 @@ function SettingsTab() {
               <label className="text-gray-400 text-xs mb-1 block flex items-center gap-1"><Receipt className="w-3 h-3"/>Receipt Footer Message</label>
               <input value={bizForm.receiptFooter} onChange={e=>setBizForm(f=>({...f,receiptFooter:e.target.value}))}
                 className="w-full px-3 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500" placeholder="Thank you! Come again 🙏"/>
+            </div>
+            <div className="sm:col-span-2 border-t border-white/10 pt-4 mt-2">
+              <label className="text-gray-400 text-sm mb-2 block font-semibold">Store Ordering Status</label>
+              <button type="button" onClick={()=>setBizForm(f=>({...f, isStoreClosed: f.isStoreClosed === "true" ? "false" : "true"}))}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-colors ${bizForm.isStoreClosed === "true" ? "bg-red-900/30 text-red-400 border border-red-500/30" : "bg-green-900/30 text-green-400 border border-green-500/30"}`}>
+                {bizForm.isStoreClosed === "true" ? <ToggleRight className="w-4 h-4"/> : <ToggleLeft className="w-4 h-4"/>}
+                {bizForm.isStoreClosed === "true" ? "Store is CLOSED (Ordering Disabled)" : "Store is OPEN (Ordering Enabled)"}
+              </button>
             </div>
           </div>
           <button type="submit" disabled={bizSaving}

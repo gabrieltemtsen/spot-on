@@ -170,7 +170,19 @@ export default function CheckoutPage() {
       <Navbar />
       <CartDrawer />
       <div className="pt-24 pb-16 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto">
-        <h1 className="text-3xl sm:text-4xl font-extrabold text-white mb-8">Checkout</h1>
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-white">Checkout</h1>
+        </div>
+
+        {settings?.isStoreClosed === "true" && (
+          <div className="bg-red-900/20 border border-red-500/30 rounded-2xl p-6 mb-8 flex items-center justify-center gap-4 text-left">
+            <Store className="w-8 h-8 text-red-400 shrink-0" />
+            <div>
+              <p className="text-red-300 font-bold text-lg">We are currently closed.</p>
+              <p className="text-red-400/80 text-sm mt-1">Online ordering is temporarily paused. Please check back later during our opening hours!</p>
+            </div>
+          </div>
+        )}
 
         {items.length === 0 ? (
           <div className="text-center py-24 text-gray-400">
@@ -374,8 +386,9 @@ export default function CheckoutPage() {
                   + Add More Items
                 </button>
 
-                <button type="submit" disabled={loading} className="w-full py-4 rounded-full bg-orange-500 hover:bg-orange-400 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold transition-all flex items-center justify-center gap-2">
-                  {uploading ? <><Loader2 className="w-5 h-5 animate-spin" /> Uploading receipt...</>
+                <button type="submit" disabled={loading || settings?.isStoreClosed === "true"} className="w-full py-4 rounded-full bg-orange-500 hover:bg-orange-400 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold transition-all flex items-center justify-center gap-2">
+                  {settings?.isStoreClosed === "true" ? "Store Closed"
+                   : uploading ? <><Loader2 className="w-5 h-5 animate-spin" /> Uploading receipt...</>
                    : loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Placing Order...</>
                    : form.paymentMethod === "transfer" ? "Place Order — I've Transferred 🏦"
                    : "Place Order 🚀"}
