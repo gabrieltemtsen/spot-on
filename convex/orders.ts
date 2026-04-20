@@ -131,11 +131,13 @@ export const getStats = query({
     const todayOrders = all.filter((o) => new Date(o.createdAt).toDateString() === today);
     const webOrders = todayOrders.filter((o) => o.source !== "walkin");
     const walkinOrders = todayOrders.filter((o) => o.source === "walkin");
-    const revenue = todayOrders.filter((o) => o.status !== "cancelled").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
-    const cashRevenue = todayOrders.filter((o) => o.status !== "cancelled" && o.paymentMethod === "cash").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
-    const transferRevenue = todayOrders.filter((o) => o.status !== "cancelled" && o.paymentMethod === "transfer").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
+    const unpaidOrders = todayOrders.filter((o) => o.status !== "cancelled" && o.paymentStatus !== "confirmed" && o.status !== "completed");
+    const validRevenueOrders = todayOrders.filter((o) => o.status !== "cancelled" && o.paymentStatus !== "rejected" && (o.paymentStatus === "confirmed" || o.status === "completed"));
+    const revenue = validRevenueOrders.reduce((s, o) => s + (o.total ?? o.subtotal), 0);
+    const cashRevenue = validRevenueOrders.filter((o) => o.paymentMethod === "cash").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
+    const transferRevenue = validRevenueOrders.filter((o) => o.paymentMethod === "transfer").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
     return {
-      total: todayOrders.length,
+      total: todayOrders.length - unpaidOrders.length, // Don't count unpaid as total volume
       pending: todayOrders.filter((o) => o.status === "pending").length,
       active: todayOrders.filter((o) => ["confirmed", "preparing", "ready", "dispatched"].includes(o.status)).length,
       completed: todayOrders.filter((o) => o.status === "completed").length,
@@ -152,13 +154,15 @@ export const getEodReport = query({
     const all = await ctx.db.query("orders").collect();
     const target = date ?? new Date().toDateString();
     const dayOrders = all.filter((o) => new Date(o.createdAt).toDateString() === target);
-    const completed = dayOrders.filter((o) => o.status !== "cancelled");
-    const revenue = completed.reduce((s, o) => s + (o.total ?? o.subtotal), 0);
-    const cash = completed.filter((o) => o.paymentMethod === "cash").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
-    const transfer = completed.filter((o) => o.paymentMethod === "transfer").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
+    const completed = dayOrders.filter((o) => o.status === "completed");
+    const validRevenueOrders = dayOrders.filter((o) => o.status !== "cancelled" && o.paymentStatus !== "rejected" && (o.paymentStatus === "confirmed" || o.status === "completed"));
+    const revenue = validRevenueOrders.reduce((s, o) => s + (o.total ?? o.subtotal), 0);
+    const cash = validRevenueOrders.filter((o) => o.paymentMethod === "cash").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
+    const transfer = validRevenueOrders.filter((o) => o.paymentMethod === "transfer").reduce((s, o) => s + (o.total ?? o.subtotal), 0);
+    const unpaidOrders = dayOrders.filter((o) => o.status !== "cancelled" && o.paymentStatus !== "confirmed" && o.status !== "completed");
     return {
       date: target,
-      totalOrders: dayOrders.length,
+      totalOrders: dayOrders.length - unpaidOrders.length,
       completedOrders: completed.length,
       cancelledOrders: dayOrders.filter((o) => o.status === "cancelled").length,
       revenue, cash, transfer,
