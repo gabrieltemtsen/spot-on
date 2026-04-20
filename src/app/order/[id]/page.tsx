@@ -97,8 +97,14 @@ export default function OrderPage() {
 
             {!isCancelled && (
               <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
-                <h2 className="text-white font-bold text-lg mb-6">Order Status</h2>
-                <p className="text-green-400 text-xs mb-4">⚡ Live — updates automatically</p>
+                <h2 className="text-white font-bold text-lg mb-4">Order Status</h2>
+                <div className="bg-green-900/20 border border-green-500/30 rounded-xl p-3 mb-6 flex items-start gap-3">
+                  <span className="text-xl leading-none pt-0.5">👀</span>
+                  <div>
+                    <p className="text-green-300 font-semibold text-sm">Keep this page open!</p>
+                    <p className="text-green-400/80 text-xs mt-0.5">Your order status updates here automatically in real-time. Stay on this screen to track your progress.</p>
+                  </div>
+                </div>
                 <div className="space-y-0">
                   {STEPS.map((step, idx) => {
                     const Icon = step.icon;
