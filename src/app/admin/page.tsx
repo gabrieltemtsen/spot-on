@@ -519,6 +519,7 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
             const S=STATUS_CFG[order.status as OrderStatus];
             const Icon=S.icon;
             const next=NEXT_STATUS[order.status as OrderStatus];
+            const canUpdateStatus = !(order.paymentMethod === "transfer" && order.paymentStatus !== "confirmed");
             return(
               <div key={order._id} onClick={()=>setSelected(order)}
                 className={`bg-white/5 border rounded-xl p-3 cursor-pointer transition-all ${selected?._id===order._id?"border-green-500/50":"border-white/10 hover:border-white/20"}`}>
@@ -538,8 +539,9 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
                     <p className="text-gray-500 text-xs">{new Date(order.createdAt).toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</p>
                     {next&&(
-                      <button onClick={e=>{e.stopPropagation();handleStatus(order._id,next);}} disabled={updating===order._id}
-                        className="px-3 py-1.5 rounded-full bg-green-700 hover:bg-green-600 text-white text-xs font-semibold disabled:opacity-60">
+                      <button onClick={e=>{e.stopPropagation(); if(canUpdateStatus) handleStatus(order._id,next);}} disabled={updating===order._id || !canUpdateStatus}
+                        title={!canUpdateStatus ? "Confirm payment below before updating status" : ""}
+                        className="px-3 py-1.5 rounded-full bg-green-700 hover:bg-green-600 text-white text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
                         {updating===order._id?<Loader2 className="w-3 h-3 animate-spin"/>:`→ ${STATUS_CFG[next].label}`}
                       </button>
                     )}
