@@ -54,6 +54,9 @@ export default defineSchema({
     processedByName: v.optional(v.string()),
     riderName: v.optional(v.string()),
     riderPhone: v.optional(v.string()),
+    estimatedPrepTime: v.optional(v.string()), // For processing time
+    rating: v.optional(v.number()), // 1-5 stars
+    feedback: v.optional(v.string()), // Optional feedback comment
     status: v.union(
       v.literal("pending"),
       v.literal("confirmed"),

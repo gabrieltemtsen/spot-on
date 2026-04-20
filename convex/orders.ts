@@ -82,8 +82,12 @@ export const create = mutation({
 });
 
 export const updateStatus = mutation({
-  args: { id: v.id("orders"), status: statusValues },
-  handler: async (ctx, { id, status }) => {
+  args: { 
+    id: v.id("orders"), 
+    status: statusValues,
+    estimatedPrepTime: v.optional(v.string())
+  },
+  handler: async (ctx, { id, status, estimatedPrepTime }) => {
     const order = await ctx.db.get(id);
     if (!order) return;
 
@@ -113,8 +117,23 @@ export const updateStatus = mutation({
       }
     }
     
-    return ctx.db.patch(id, { status, updatedAt: Date.now() });
+    return ctx.db.patch(id, { 
+      status, 
+      ...(estimatedPrepTime !== undefined ? { estimatedPrepTime } : {}),
+      updatedAt: Date.now() 
+    });
   },
+});
+
+export const submitFeedback = mutation({
+  args: {
+    id: v.id("orders"),
+    rating: v.number(),
+    feedback: v.optional(v.string())
+  },
+  handler: async (ctx, { id, rating, feedback }) => {
+    return ctx.db.patch(id, { rating, feedback, updatedAt: Date.now() });
+  }
 });
 
 export const assignRider = mutation({

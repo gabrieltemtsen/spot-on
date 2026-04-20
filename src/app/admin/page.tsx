@@ -16,7 +16,7 @@ import {
 
 // ── types ──────────────────────────────────────────────────────
 type OrderStatus = "pending"|"confirmed"|"preparing"|"ready"|"dispatched"|"completed"|"cancelled";
-type TabId = "pos"|"orders"|"products"|"expenses"|"team"|"reports"|"settings"|"customers";
+type TabId = "pos"|"orders"|"products"|"expenses"|"team"|"reports"|"settings"|"customers"|"feedback";
 type Role = "admin"|"cashier";
 
 interface TeamMember { _id: string; name: string; pin: string; role: Role; active: boolean }
@@ -182,6 +182,7 @@ export default function AdminPage() {
   const tabs: {id:TabId;label:string;icon:React.ElementType;adminOnly?:boolean}[] = [
     {id:"pos",       label:"Quick Sale", icon:Zap},
     {id:"orders",    label:"Orders",     icon:ShoppingBag},
+    {id:"feedback",  label:"Feedback",   icon:Star,        adminOnly:true},
     {id:"products",  label:"Products",   icon:Package,     adminOnly:true},
     {id:"expenses",  label:"Expenses",   icon:DollarSign,  adminOnly:true},
     {id:"customers", label:"Customers",  icon:UserCircle,  adminOnly:true},
@@ -222,6 +223,7 @@ export default function AdminPage() {
         {tab==="customers" && <CustomersTab onReorder={(items)=>{setPosPreload(items);setTab("pos");}} />}
         {tab==="team"      && <TeamTab />}
         {tab==="reports"   && <ReportsTab settings={siteSettings} />}
+        {tab==="feedback"  && <FeedbackTab />}
         {tab==="settings"  && <SettingsTab />}
       </div>
     </main>
@@ -446,8 +448,15 @@ function OrdersTab({ user, settings }: { user: TeamMember; settings?: Record<str
   const [copied, setCopied] = useState(false);
 
   async function handleStatus(id:string,status:OrderStatus){
+    let estimatedPrepTime;
+    if (status === "confirmed" || status === "preparing") {
+      const res = window.prompt("Estimated prep time (e.g. 15 mins)? Leave blank if unknown:");
+      if (res !== null && res.trim() !== "") {
+        estimatedPrepTime = res.trim();
+      }
+    }
     setUpdating(id);
-    try{await updateStatus({id,status});}finally{setUpdating(null);}
+    try{await updateStatus({id,status,estimatedPrepTime});}finally{setUpdating(null);}
   }
 
   async function handleConfirmPayment(id:string){
@@ -1590,6 +1599,61 @@ function SettingsTab() {
           {catSaved ? "Saved!" : "Save Categories"}
         </button>
       </section>
+    </div>
+  );
+}
+// ── Feedback Tab ───────────────────────────────────────────────
+function FeedbackTab() {
+  const orders = useQuery(api.orders.list);
+
+  if (orders === undefined) {
+    return <div className="flex justify-center py-24"><Loader2 className="w-6 h-6 animate-spin text-gray-400"/></div>;
+  }
+
+  const feedbackOrders = orders.filter((o: any) => o.rating).sort((a: any, b: any) => b.updatedAt - a.updatedAt);
+  const avgRating = feedbackOrders.length ? feedbackOrders.reduce((add: number, o: any) => add + o.rating, 0) / feedbackOrders.length : 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-white font-bold text-lg">Customer Feedback</h2>
+      </div>
+
+      <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center space-y-2">
+        <p className="text-gray-400">Average Rating</p>
+        <div className="flex items-center justify-center gap-2">
+          <Star className="w-8 h-8 text-yellow-400 fill-yellow-400" />
+          <span className="text-4xl font-extrabold text-white">{avgRating > 0 ? avgRating.toFixed(1) : "—"}</span>
+        </div>
+        <p className="text-gray-500 text-sm">Based on {feedbackOrders.length} reviews</p>
+      </div>
+
+      <div className="space-y-3">
+        {feedbackOrders.length === 0 ? (
+          <div className="text-center py-16 text-gray-500"><span className="text-4xl block mb-3">⭐</span>No feedback received yet.</div>
+        ) : (
+          feedbackOrders.map((o: any) => (
+            <div key={o._id} className="bg-white/5 border border-white/10 rounded-xl p-5">
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <p className="text-white font-semibold flex items-center gap-2">{o.customerName} <span className="text-gray-500 text-xs font-mono">{o.orderNumber}</span></p>
+                  <p className="text-gray-500 text-xs">{new Date(o.updatedAt).toLocaleString("en-NG", {dateStyle:"medium", timeStyle:"short"})}</p>
+                </div>
+                <div className="flex items-center">
+                  {[1,2,3,4,5].map(s => <Star key={s} className={`w-4 h-4 ${s <= o.rating ? "text-yellow-400 fill-yellow-400" : "text-gray-600"}`} />)}
+                </div>
+              </div>
+              {o.feedback ? (
+                <div className="bg-black/20 rounded-lg p-3 border border-white/5 text-gray-300 text-sm italic">
+                  "{o.feedback}"
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm italic">No comment provided.</p>
+              )}
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }

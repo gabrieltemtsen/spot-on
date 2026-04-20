@@ -18,7 +18,6 @@ export default function Navbar() {
         </Link>
 
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-gray-300">
-          <Link href="/menu" className="hover:text-white transition-colors">Menu</Link>
           <Link href="/#how-it-works" className="hover:text-white transition-colors">How It Works</Link>
           <Link href="/my-orders" className="hover:text-white transition-colors">My Orders</Link>
         </nav>

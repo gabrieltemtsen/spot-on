@@ -11,7 +11,15 @@ import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/menu";
 import { Loader2, MapPin, Store, CheckCircle2, Copy, Check, Banknote, Upload, X, ImageIcon } from "lucide-react";
 
-const DELIVERY_FEE = 500;
+const JOS_LOCATIONS = [
+  { name: "Rayfield", fee: 2000 },
+  { name: "Bukuru", fee: 2500 },
+  { name: "Terminus", fee: 2000 },
+  { name: "Zarmaganda", fee: 2000 },
+  { name: "Tudun Wada", fee: 2000 },
+  { name: "Anglo Jos", fee: 2000 },
+  { name: "Other Area (Standard)", fee: 2500 }
+];
 
 function saveOrderToLocalStorage(orderId: string, orderNumber: string, customerName: string) {
   try {
@@ -34,6 +42,7 @@ export default function CheckoutPage() {
     customerName: "",
     customerPhone: "",
     deliveryType: "pickup" as "pickup" | "delivery",
+    deliveryZone: "",
     deliveryAddress: "",
     specialInstructions: "",
     paymentMethod: "transfer" as "pending" | "cash" | "transfer" | "card",
@@ -54,7 +63,8 @@ export default function CheckoutPage() {
   }
 
   const subtotal = total();
-  const deliveryFee = form.deliveryType === "delivery" ? DELIVERY_FEE : 0;
+  const selectedZoneFee = JOS_LOCATIONS.find(l => l.name === form.deliveryZone)?.fee ?? 2500;
+  const deliveryFee = form.deliveryType === "delivery" ? selectedZoneFee : 0;
   const orderTotal = subtotal + deliveryFee;
 
   const bankName = settings?.bankName || "";
@@ -97,7 +107,7 @@ export default function CheckoutPage() {
         customerName: form.customerName,
         customerPhone: form.customerPhone,
         deliveryType: form.deliveryType,
-        deliveryAddress: form.deliveryAddress || undefined,
+        deliveryAddress: form.deliveryAddress ? `${form.deliveryZone ? form.deliveryZone + " - " : ""}${form.deliveryAddress}` : undefined,
         specialInstructions: form.specialInstructions || undefined,
         items: items.map(({ item, quantity }) => ({ productId: item.id, name: item.name, price: item.price, quantity, emoji: item.emoji })),
         subtotal,
@@ -140,7 +150,7 @@ export default function CheckoutPage() {
           deliveryFee,
           total: orderTotal,
           deliveryType: form.deliveryType,
-          deliveryAddress: form.deliveryAddress,
+          deliveryAddress: form.deliveryAddress ? `${form.deliveryZone ? form.deliveryZone + " - " : ""}${form.deliveryAddress}` : undefined,
           specialInstructions: form.specialInstructions,
           paymentMethod: form.paymentMethod,
           paymentBank: form.paymentBank || undefined,
@@ -193,7 +203,7 @@ export default function CheckoutPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
                     { value: "pickup", label: "Pickup", desc: "Come pick it up — free", icon: <Store className="w-5 h-5" /> },
-                    { value: "delivery", label: "Delivery", desc: `We bring it to you (+${formatPrice(DELIVERY_FEE)})`, icon: <MapPin className="w-5 h-5" /> },
+                    { value: "delivery", label: "Delivery", desc: "We bring it to you (₦2,000 - ₦2,500)", icon: <MapPin className="w-5 h-5" /> },
                   ].map((opt) => (
                     <button type="button" key={opt.value} onClick={() => update("deliveryType", opt.value)}
                       className={`flex items-center gap-4 p-4 rounded-xl border transition-all text-left ${form.deliveryType === opt.value ? "border-green-500 bg-green-900/30 text-white" : "border-white/20 bg-white/5 text-gray-400 hover:border-white/30"}`}>
@@ -204,9 +214,20 @@ export default function CheckoutPage() {
                   ))}
                 </div>
                 {form.deliveryType === "delivery" && (
-                  <div>
-                    <label className="text-gray-400 text-sm mb-1.5 block">Delivery Address *</label>
-                    <textarea value={form.deliveryAddress} onChange={(e) => update("deliveryAddress", e.target.value)} placeholder="Enter your full delivery address..." rows={3} className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-500 focus:outline-none focus:border-green-500 transition-colors resize-none" />
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-gray-400 text-sm mb-1.5 block">Delivery Area *</label>
+                      <select value={form.deliveryZone} onChange={(e) => update("deliveryZone", e.target.value)} className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white focus:outline-none focus:border-green-500 transition-colors">
+                        <option value="" disabled className="text-black">Select an area in Jos...</option>
+                        {JOS_LOCATIONS.map(loc => (
+                          <option key={loc.name} value={loc.name} className="text-black">{loc.name} — {formatPrice(loc.fee)}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-gray-400 text-sm mb-1.5 block">Detailed Address *</label>
+                      <textarea value={form.deliveryAddress} onChange={(e) => update("deliveryAddress", e.target.value)} placeholder="House number, street name, landmarks..." rows={3} className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-500 focus:outline-none focus:border-green-500 transition-colors resize-none" />
+                    </div>
                   </div>
                 )}
               </div>
@@ -344,6 +365,15 @@ export default function CheckoutPage() {
                   {deliveryFee > 0 && <div className="flex justify-between text-gray-300 text-sm"><span>Delivery fee</span><span>{formatPrice(deliveryFee)}</span></div>}
                   <div className="flex justify-between text-white font-bold text-lg"><span>Total</span><span className="text-green-400">{formatPrice(orderTotal)}</span></div>
                 </div>
+                
+                <button
+                  type="button"
+                  onClick={() => router.push("/menu")}
+                  className="w-full py-3 rounded-xl border border-white/20 hover:border-white/40 text-white text-sm font-semibold transition-all"
+                >
+                  + Add More Items
+                </button>
+
                 <button type="submit" disabled={loading} className="w-full py-4 rounded-full bg-orange-500 hover:bg-orange-400 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold transition-all flex items-center justify-center gap-2">
                   {uploading ? <><Loader2 className="w-5 h-5 animate-spin" /> Uploading receipt...</>
                    : loading ? <><Loader2 className="w-5 h-5 animate-spin" /> Placing Order...</>

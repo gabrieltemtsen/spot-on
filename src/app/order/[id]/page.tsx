@@ -1,15 +1,16 @@
 // @ts-nocheck
 "use client";
 import { useParams, useRouter } from "next/navigation";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import Navbar from "@/components/Navbar";
 import CartDrawer from "@/components/CartDrawer";
 import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/menu";
-import { CheckCircle2, Clock, ChefHat, PackageCheck, Bike, XCircle, Loader2, RotateCcw, Banknote, AlertCircle } from "lucide-react";
+import { CheckCircle2, Clock, ChefHat, PackageCheck, Bike, XCircle, Loader2, RotateCcw, Banknote, AlertCircle, Phone, Star } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 
 const STEPS = [
   { key: "pending",   label: "Order Received",  icon: Clock,        desc: "We got your order!" },
@@ -25,7 +26,13 @@ export default function OrderPage() {
   const order = useQuery(api.orders.get, { id: id as Id<"orders"> });
   const allProducts = useQuery(api.products.list, {});
   const settings = useQuery(api.settings.getAll, {});
+  const submitFeedback = useMutation(api.orders.submitFeedback);
   const { clearCart, addItem, openCart } = useCart();
+  
+  const [ratingVal, setRatingVal] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
 
   const isCancelled = order?.status === "cancelled";
   const currentStep = order ? STEPS.findIndex((s) => s.key === order.status) : -1;
@@ -50,6 +57,16 @@ export default function OrderPage() {
       });
     });
     router.push("/checkout");
+  }
+
+  async function handleFeedback() {
+    if (!order || ratingVal === 0) return;
+    setFeedbackSubmitting(true);
+    try {
+      await submitFeedback({ id: order._id, rating: ratingVal, feedback: feedbackText || undefined });
+    } finally {
+      setFeedbackSubmitting(false);
+    }
   }
 
   return (
@@ -106,6 +123,15 @@ export default function OrderPage() {
                     );
                   })}
                 </div>
+                {order.estimatedPrepTime && !["ready", "completed", "dispatched"].includes(order.status) && (
+                  <div className="mt-6 bg-orange-500/10 border border-orange-500/20 rounded-xl p-3 flex items-center gap-3">
+                    <Clock className="w-5 h-5 text-orange-400" />
+                    <div>
+                      <p className="text-orange-300 text-xs font-bold uppercase tracking-wide">Estimated Prep Time</p>
+                      <p className="text-white font-medium text-sm">{order.estimatedPrepTime}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -185,6 +211,68 @@ export default function OrderPage() {
                 <div className="bg-white/5 rounded-xl p-3"><p className="text-gray-400 text-xs mb-1">Special Instructions</p><p className="text-white text-sm">{order.specialInstructions}</p></div>
               )}
             </div>
+
+            {/* ── Support Info ─────────────────── */}
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 flex flex-col items-center text-center space-y-2">
+              <Phone className="w-8 h-8 text-green-400 mb-1" />
+              <h2 className="text-white font-bold">Need help with your order?</h2>
+              <p className="text-gray-400 text-sm">Call our support line for updates or questions.</p>
+              <a href={`tel:${settings?.businessPhone || ""}`} className="px-6 py-2 rounded-full bg-white/10 text-white font-semibold mt-2 hover:bg-white/20 transition-colors">
+                {settings?.businessPhone || "Support Line"}
+              </a>
+            </div>
+
+            {/* ── Ratings & Feedback ─────────────────── */}
+            {order.status === "completed" && (
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
+                {order.rating ? (
+                  <div className="text-center space-y-2">
+                    <div className="flex justify-center gap-1">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Star key={s} className={`w-6 h-6 ${s <= order.rating! ? "text-yellow-400 fill-yellow-400" : "text-gray-600"}`} />
+                      ))}
+                    </div>
+                    <p className="text-green-400 font-semibold text-sm">Thank you for your rating! 🎉</p>
+                    {order.feedback && <p className="text-gray-400 text-sm italic mt-1">"{order.feedback}"</p>}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <h2 className="text-white font-bold text-center">How did we do?</h2>
+                    <div className="flex justify-center gap-2">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          onClick={() => setRatingVal(star)}
+                          onMouseEnter={() => setHoverRating(star)}
+                          onMouseLeave={() => setHoverRating(0)}
+                          className="p-1 transition-transform hover:scale-110"
+                        >
+                          <Star className={`w-8 h-8 ${star <= (hoverRating || ratingVal) ? "text-yellow-400 fill-yellow-400" : "text-gray-600"}`} />
+                        </button>
+                      ))}
+                    </div>
+                    {ratingVal > 0 && (
+                      <div className="space-y-3 animate-in fade-in zoom-in duration-300">
+                        <textarea
+                          value={feedbackText}
+                          onChange={(e) => setFeedbackText(e.target.value)}
+                          placeholder="Tell us what you liked (optional)..."
+                          rows={2}
+                          className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-500 focus:outline-none focus:border-green-500 transition-colors resize-none"
+                        />
+                        <button
+                          onClick={handleFeedback}
+                          disabled={feedbackSubmitting}
+                          className="w-full py-3 rounded-xl bg-yellow-500 hover:bg-yellow-400 disabled:opacity-60 text-yellow-950 font-bold transition-colors flex items-center justify-center gap-2"
+                        >
+                          {feedbackSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit Feedback"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* CTA buttons */}
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
