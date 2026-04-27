@@ -1,6 +1,6 @@
 // @ts-nocheck
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
@@ -46,8 +46,18 @@ export default function CheckoutPage() {
     deliveryAddress: "",
     specialInstructions: "",
     paymentMethod: "transfer" as "pending" | "cash" | "transfer" | "card",
-    paymentBank: "",
   });
+
+  // Prefill customer details
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("spoton_customer_details");
+      if (saved) {
+        const { name, phone } = JSON.parse(saved);
+        setForm(f => ({ ...f, customerName: name || "", customerPhone: phone || "" }));
+      }
+    } catch { /* silent */ }
+  }, []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -97,7 +107,6 @@ export default function CheckoutPage() {
     if (!form.customerName || !form.customerPhone) { setError("Please fill in your name and phone number."); return; }
     if (form.deliveryType === "delivery" && !form.deliveryAddress) { setError("Please enter your delivery address."); return; }
     if (items.length === 0) { setError("Your cart is empty."); return; }
-    if (form.paymentMethod === "transfer" && !form.paymentBank) { setError("Please tell us which bank you sent from."); return; }
     if (form.paymentMethod === "transfer" && !receiptFile) { setError("Please upload your transfer receipt screenshot."); return; }
     setError(""); setLoading(true);
 
@@ -114,9 +123,13 @@ export default function CheckoutPage() {
         deliveryFee: deliveryFee || undefined,
         paymentMethod: form.paymentMethod,
         paymentStatus: form.paymentMethod === "transfer" ? "awaiting_confirmation" : "unpaid",
-        paymentBank: form.paymentBank || undefined,
         source: "web",
       });
+
+      // Save customer details for next time
+      try {
+        localStorage.setItem("spoton_customer_details", JSON.stringify({ name: form.customerName, phone: form.customerPhone }));
+      } catch { /* silent */ }
 
       // Upload receipt screenshot to Convex storage
       if (form.paymentMethod === "transfer" && receiptFile) {
@@ -153,7 +166,6 @@ export default function CheckoutPage() {
           deliveryAddress: form.deliveryAddress ? `${form.deliveryZone ? form.deliveryZone + " - " : ""}${form.deliveryAddress}` : undefined,
           specialInstructions: form.specialInstructions,
           paymentMethod: form.paymentMethod,
-          paymentBank: form.paymentBank || undefined,
         }),
       }).catch(() => {});
 
@@ -242,6 +254,17 @@ export default function CheckoutPage() {
                     </div>
                   </div>
                 )}
+
+                {form.deliveryType === "pickup" && (
+                  <div className="p-4 rounded-xl bg-green-900/20 border border-green-500/30 flex items-start gap-3">
+                    <MapPin className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-green-300 font-bold text-sm">Pickup Location</p>
+                      <p className="text-green-400/90 text-sm mt-0.5">Rayfield opposite PRTV</p>
+                      <p className="text-gray-500 text-xs mt-1">Jos, Plateau State</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* ── Payment Method ─────────────────── */}
@@ -295,16 +318,7 @@ export default function CheckoutPage() {
                       </div>
                     )}
 
-                    <div>
-                      <label className="text-gray-400 text-sm mb-1.5 block">Which bank did you send from? *</label>
-                      <input
-                        type="text"
-                        value={form.paymentBank}
-                        onChange={(e) => update("paymentBank", e.target.value)}
-                        placeholder="e.g. GTBank, Access, OPay, Palmpay..."
-                        className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-gray-500 focus:outline-none focus:border-green-500 transition-colors"
-                      />
-                    </div>
+
                     {/* Receipt upload */}
                     <div>
                       <label className="text-gray-400 text-sm mb-1.5 block">Upload Transfer Receipt *</label>

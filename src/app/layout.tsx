@@ -21,14 +21,6 @@ export const metadata: Metadata = {
     title: "Spot-On | Fresh Juices & Salads",
     description: "Cold-pressed juices, power smoothies, and fresh salads — made to order fast. Explore our menu of natural, healthy, and delicious options.",
     siteName: "Spot-On",
-    images: [
-      {
-        url: "/og.png",
-        width: 1200,
-        height: 630,
-        alt: "Spot-On Fresh Juices and Salads",
-      },
-    ],
     locale: "en_NG",
     type: "website",
   },
@@ -36,9 +28,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Spot-On | Fresh Juices & Salads",
     description: "Cold-pressed juices, power smoothies, and fresh salads — made to order.",
-    images: ["/og.png"],
   },
-  icons: { icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍊</text></svg>" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
