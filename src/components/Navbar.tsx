@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { ShoppingCart, Leaf } from "lucide-react";
+import { ShoppingCart, Leaf, ClipboardList } from "lucide-react";
 import { useCart } from "@/store/cart";
 
 export default function Navbar() {
@@ -23,6 +23,10 @@ export default function Navbar() {
         </nav>
 
         <div className="flex items-center gap-3">
+          <Link href="/my-orders" className="md:hidden flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm font-semibold transition-colors">
+            <ClipboardList className="w-4 h-4" />
+            <span className="sr-only">Orders</span>
+          </Link>
           <Link href="/menu" className="hidden sm:inline-flex items-center gap-2 px-4 py-2 rounded-full bg-green-600 hover:bg-green-500 text-white text-sm font-semibold transition-colors">
             Order Now
           </Link>

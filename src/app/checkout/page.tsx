@@ -256,12 +256,12 @@ export default function CheckoutPage() {
                 )}
 
                 {form.deliveryType === "pickup" && (
-                  <div className="p-4 rounded-xl bg-green-900/20 border border-green-500/30 flex items-start gap-3">
-                    <MapPin className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
+                  <div className="p-4 rounded-xl bg-amber-900/20 border border-amber-500/30 flex items-start gap-3">
+                    <MapPin className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-green-300 font-bold text-sm">Pickup Location</p>
-                      <p className="text-green-400/90 text-sm mt-0.5">Rayfield opposite PRTV</p>
-                      <p className="text-gray-500 text-xs mt-1">Jos, Plateau State</p>
+                      <p className="text-amber-300 font-bold text-sm">Pickup Location</p>
+                      <p className="text-amber-400/90 text-sm mt-0.5">Rayfield opposite PRTV</p>
+                      <p className="text-gray-400 text-xs mt-1">Jos, Plateau State</p>
                     </div>
                   </div>
                 )}
