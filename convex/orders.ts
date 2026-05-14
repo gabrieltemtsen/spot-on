@@ -338,3 +338,86 @@ export const rejectPayment = mutation({
     });
   },
 });
+
+// ── Monthly / Range Report ──────────────────────────────────────
+export const getMonthReport = query({
+  args: { from: v.string(), to: v.string() }, // YYYY-MM-DD
+  handler: async (ctx, { from, to }) => {
+    const all = await ctx.db.query("orders").collect();
+
+    const fromTs = new Date(from + "T00:00:00").getTime();
+    const toTs   = new Date(to   + "T23:59:59").getTime();
+
+    const rangeOrders = all.filter(
+      (o) => o.createdAt >= fromTs && o.createdAt <= toTs
+    );
+
+    // Per-day buckets
+    const dayMap: Record<string, { revenue: number; orders: number; cancelled: number }> = {};
+    for (const o of rangeOrders) {
+      const day = new Date(o.createdAt).toISOString().split("T")[0];
+      if (!dayMap[day]) dayMap[day] = { revenue: 0, orders: 0, cancelled: 0 };
+      if (o.status === "cancelled") {
+        dayMap[day].cancelled += 1;
+      } else if (
+        o.paymentStatus !== "rejected" &&
+        (o.paymentStatus === "confirmed" || o.status === "completed" ||
+         o.paymentMethod === "cash" || o.paymentMethod === "card")
+      ) {
+        dayMap[day].revenue += (o.total ?? o.subtotal ?? 0);
+        dayMap[day].orders  += 1;
+      } else {
+        dayMap[day].orders += 1;
+      }
+    }
+
+    const validOrders = rangeOrders.filter(
+      (o) =>
+        o.status !== "cancelled" &&
+        o.paymentStatus !== "rejected" &&
+        (o.paymentStatus === "confirmed" || o.status === "completed" ||
+         o.paymentMethod === "cash" || o.paymentMethod === "card")
+    );
+
+    // Summary totals
+    const totalRevenue   = validOrders.reduce((s, o) => s + (o.total ?? o.subtotal ?? 0), 0);
+    const totalOrders    = rangeOrders.filter((o) => o.status !== "cancelled").length;
+    const totalCancelled = rangeOrders.filter((o) => o.status === "cancelled").length;
+
+    // Payment split
+    const cash     = validOrders.filter((o) => o.paymentMethod === "cash").reduce((s, o) => s + (o.total ?? o.subtotal ?? 0), 0);
+    const transfer = validOrders.filter((o) => o.paymentMethod === "transfer").reduce((s, o) => s + (o.total ?? o.subtotal ?? 0), 0);
+    const card     = validOrders.filter((o) => o.paymentMethod === "card").reduce((s, o) => s + (o.total ?? o.subtotal ?? 0), 0);
+
+    // Top products
+    const productMap: Record<string, { name: string; emoji: string; qty: number; revenue: number }> = {};
+    for (const o of validOrders) {
+      for (const item of (o.items ?? [])) {
+        const k = item.productId ?? item.name;
+        if (!productMap[k]) productMap[k] = { name: item.name, emoji: item.emoji, qty: 0, revenue: 0 };
+        productMap[k].qty     += item.quantity;
+        productMap[k].revenue += item.price * item.quantity;
+      }
+    }
+    const topProducts = Object.values(productMap)
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 10);
+
+    // Web vs walk-in
+    const webOrders    = rangeOrders.filter((o) => o.source !== "walkin").length;
+    const walkinOrders = rangeOrders.filter((o) => o.source === "walkin").length;
+
+    return {
+      days: dayMap,
+      totalRevenue,
+      totalOrders,
+      totalCancelled,
+      cash,
+      transfer,
+      card,
+      topProducts,
+      webOrders,
+      walkinOrders,
+    };
+  },
+});

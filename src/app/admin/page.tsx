@@ -1090,62 +1090,390 @@ function TeamTab() {
 
 // ── Reports Tab ────────────────────────────────────────────────
 function ReportsTab({ settings }: { settings?: Record<string,string> }) {
-  const [date, setDate] = useState(today());
-  const report = useQuery(api.orders.getEodReport, { date: new Date(date).toDateString() });
-  const expenses = useQuery(api.expenses.list, { date });
+  // Mode
+  const [mode, setMode] = useState<"daily"|"monthly">("daily");
 
+  // Daily state
+  const [date, setDate] = useState(today());
+  const report   = useQuery(api.orders.getEodReport, { date: new Date(date).toDateString() });
+  const expenses = useQuery(api.expenses.list, { date });
   const totalExpenses = (expenses??[]).reduce((s,e)=>s+e.amount,0);
-  const netPosition = (report?.revenue??0) - totalExpenses;
+  const netPosition   = (report?.revenue??0) - totalExpenses;
+
+  // Monthly state
+  const currentMonthStart = today().slice(0,7) + "-01";
+  const currentMonthEnd   = (() => {
+    const d = new Date(today()); d.setDate(1); d.setMonth(d.getMonth()+1); d.setDate(0);
+    return d.toISOString().split("T")[0];
+  })();
+  const [rangeFrom, setRangeFrom] = useState(currentMonthStart);
+  const [rangeTo,   setRangeTo]   = useState(currentMonthEnd);
+  const monthReport    = useQuery(api.orders.getMonthReport,    { from: rangeFrom, to: rangeTo });
+  const monthExpenses  = useQuery(api.expenses.listByRange, { from: rangeFrom, to: rangeTo });
+  const totalMonthExp  = (monthExpenses??[]).reduce((s,e)=>s+e.amount,0);
+  const netMonthProfit = (monthReport?.totalRevenue??0) - totalMonthExp;
+
+  // Helper to jump to a preset
+  function setPreset(preset: "thisMonth"|"lastMonth"|"last30"|"last7") {
+    const now = new Date();
+    if (preset==="thisMonth") {
+      const s = new Date(now.getFullYear(), now.getMonth(), 1);
+      const e = new Date(now.getFullYear(), now.getMonth()+1, 0);
+      setRangeFrom(s.toISOString().split("T")[0]);
+      setRangeTo(e.toISOString().split("T")[0]);
+    } else if (preset==="lastMonth") {
+      const s = new Date(now.getFullYear(), now.getMonth()-1, 1);
+      const e = new Date(now.getFullYear(), now.getMonth(), 0);
+      setRangeFrom(s.toISOString().split("T")[0]);
+      setRangeTo(e.toISOString().split("T")[0]);
+    } else if (preset==="last30") {
+      const s = new Date(now); s.setDate(s.getDate()-30);
+      setRangeFrom(s.toISOString().split("T")[0]);
+      setRangeTo(today());
+    } else {
+      const s = new Date(now); s.setDate(s.getDate()-7);
+      setRangeFrom(s.toISOString().split("T")[0]);
+      setRangeTo(today());
+    }
+  }
+
+  // Build sorted day list for the chart
+  const sortedDays = monthReport
+    ? Object.entries(monthReport.days).sort(([a],[b])=>a.localeCompare(b))
+    : [];
+  const maxRevenue = Math.max(...sortedDays.map(([,d])=>d.revenue), 1);
+
+  // Fill every day in range even if no orders
+  const allDaysInRange: string[] = [];
+  if (rangeFrom && rangeTo) {
+    const cur = new Date(rangeFrom);
+    const end = new Date(rangeTo);
+    while (cur <= end) {
+      allDaysInRange.push(cur.toISOString().split("T")[0]);
+      cur.setDate(cur.getDate()+1);
+    }
+  }
+
+  // CSV export for monthly
+  function exportMonthCSV() {
+    if (!monthReport) return;
+    const rows = [
+      ["Date","Orders","Revenue (₦)","Cancelled"],
+      ...allDaysInRange.map(d => {
+        const b = monthReport.days[d] ?? { orders:0, revenue:0, cancelled:0 };
+        return [d, b.orders, b.revenue, b.cancelled];
+      }),
+      [],
+      ["TOTAL","",monthReport.totalRevenue,""],
+      ["Expenses","",totalMonthExp,""],
+      ["Net Profit / Loss","",netMonthProfit,""],
+    ];
+    const csv = rows.map(r=>r.map(f=>`"${f}"`).join(",")).join("\n");
+    const blob = new Blob([csv],{type:"text/csv"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = `spoton-report-${rangeFrom}-to-${rangeTo}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4 flex-wrap">
-        <h2 className="text-white font-bold text-lg">End-of-Day Report</h2>
-        <input type="date" value={date} onChange={e=>setDate(e.target.value)} className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500"/>
-        <button onClick={()=>window.print()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 text-gray-300 text-sm hover:bg-white/20"><Printer className="w-4 h-4"/>Print Report</button>
+
+      {/* ── Mode toggle ── */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <h2 className="text-white font-bold text-lg">Reports</h2>
+        <div className="flex rounded-xl border border-white/10 overflow-hidden">
+          {(["daily","monthly"] as const).map(m=>(
+            <button key={m} onClick={()=>setMode(m)}
+              className={`px-4 py-1.5 text-sm font-semibold capitalize transition-colors ${mode===m?"bg-green-700 text-white":"bg-white/5 text-gray-400 hover:bg-white/10"}`}>
+              {m}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {!report?<div className="flex items-center gap-2 text-gray-400"><Loader2 className="w-4 h-4 animate-spin"/>Loading...</div>:(
+      {/* ═══════════════════════════════════════════════════════ */}
+      {/* DAILY MODE                                             */}
+      {/* ═══════════════════════════════════════════════════════ */}
+      {mode==="daily" && (
         <div className="space-y-4">
-          {/* Summary cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              {label:"Total Orders",val:report.totalOrders,color:"text-white"},
-              {label:"Revenue",val:formatPrice(report.revenue),color:"text-green-400"},
-              {label:"Expenses",val:formatPrice(totalExpenses),color:"text-red-400"},
-              {label:netPosition>=0?"Net Profit":"Net Loss",val:formatPrice(Math.abs(netPosition)),color:netPosition>=0?"text-green-400":"text-red-400"},
-            ].map(s=>(
-              <div key={s.label} className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
-                <p className={`text-xl font-extrabold ${s.color}`}>{s.val}</p>
-                <p className="text-gray-400 text-xs mt-1">{s.label}</p>
-              </div>
-            ))}
+          <div className="flex items-center gap-3 flex-wrap">
+            <input type="date" value={date} onChange={e=>setDate(e.target.value)}
+              className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500"/>
+            <button onClick={()=>window.print()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 text-gray-300 text-sm hover:bg-white/20">
+              <Printer className="w-4 h-4"/>Print
+            </button>
           </div>
 
-          {/* Payment breakdown */}
-          <div className="bg-white/5 border border-white/10 rounded-xl p-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="text-center"><p className="text-white font-bold">{formatPrice(report.cash)}</p><p className="text-gray-400 text-xs">Cash</p></div>
-            <div className="text-center"><p className="text-white font-bold">{formatPrice(report.transfer)}</p><p className="text-gray-400 text-xs">Transfer</p></div>
-            <div className="text-center"><p className="text-white font-bold">{report.webOrders}</p><p className="text-gray-400 text-xs">Web Orders</p></div>
-            <div className="text-center"><p className="text-white font-bold">{report.walkinOrders}</p><p className="text-gray-400 text-xs">Walk-ins</p></div>
-          </div>
-
-          {/* Expenses by category */}
-          {expenses&&expenses.length>0&&(
-            <div className="bg-white/5 border border-white/10 rounded-xl p-4">
-              <h3 className="text-white font-bold mb-3">Expenses Breakdown</h3>
-              <div className="space-y-2">
-                {Object.entries(expenses.reduce((acc,e)=>({...acc,[e.category]:(acc[e.category]??0)+e.amount}),{} as Record<string,number>)).map(([cat,amt])=>(
-                  <div key={cat} className="flex justify-between">
-                    <span className="text-gray-300 capitalize">{cat}</span>
-                    <span className="text-red-400 font-semibold">{formatPrice(amt)}</span>
+          {!report
+            ? <div className="flex items-center gap-2 text-gray-400"><Loader2 className="w-4 h-4 animate-spin"/>Loading...</div>
+            : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  {label:"Orders",  val:report.totalOrders,             color:"text-white"},
+                  {label:"Revenue", val:formatPrice(report.revenue),    color:"text-green-400"},
+                  {label:"Expenses",val:formatPrice(totalExpenses),     color:"text-red-400"},
+                  {label:netPosition>=0?"Net Profit":"Net Loss",
+                   val:formatPrice(Math.abs(netPosition)),
+                   color:netPosition>=0?"text-green-400":"text-red-400"},
+                ].map(s=>(
+                  <div key={s.label} className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
+                    <p className={`text-xl font-extrabold ${s.color}`}>{s.val}</p>
+                    <p className="text-gray-400 text-xs mt-1">{s.label}</p>
                   </div>
                 ))}
               </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="text-center"><p className="text-white font-bold">{formatPrice(report.cash)}</p><p className="text-gray-400 text-xs">Cash</p></div>
+                <div className="text-center"><p className="text-white font-bold">{formatPrice(report.transfer)}</p><p className="text-gray-400 text-xs">Transfer</p></div>
+                <div className="text-center"><p className="text-white font-bold">{report.webOrders}</p><p className="text-gray-400 text-xs">Web Orders</p></div>
+                <div className="text-center"><p className="text-white font-bold">{report.walkinOrders}</p><p className="text-gray-400 text-xs">Walk-ins</p></div>
+              </div>
+              {expenses&&expenses.length>0&&(
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                  <h3 className="text-white font-bold mb-3">Expenses Breakdown</h3>
+                  <div className="space-y-2">
+                    {Object.entries(expenses.reduce((acc,e)=>({...acc,[e.category]:(acc[e.category]??0)+e.amount}),{} as Record<string,number>)).map(([cat,amt])=>(
+                      <div key={cat} className="flex justify-between">
+                        <span className="text-gray-300 capitalize">{cat}</span>
+                        <span className="text-red-400 font-semibold">{formatPrice(amt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <p className="text-gray-500 text-xs text-center">Report for {date} · Generated {new Date().toLocaleString("en-NG")}</p>
             </div>
           )}
+        </div>
+      )}
 
-          <p className="text-gray-500 text-xs text-center">Report for {date} · Generated {new Date().toLocaleString("en-NG")}</p>
+      {/* ═══════════════════════════════════════════════════════ */}
+      {/* MONTHLY MODE                                           */}
+      {/* ═══════════════════════════════════════════════════════ */}
+      {mode==="monthly" && (
+        <div className="space-y-6">
+
+          {/* Date range controls */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <input type="date" value={rangeFrom} onChange={e=>setRangeFrom(e.target.value)}
+                className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500"/>
+              <span className="text-gray-500 text-sm">to</span>
+              <input type="date" value={rangeTo} onChange={e=>setRangeTo(e.target.value)}
+                className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm focus:outline-none focus:border-green-500"/>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                {key:"last7",     label:"Last 7d"},
+                {key:"last30",    label:"Last 30d"},
+                {key:"thisMonth", label:"This Month"},
+                {key:"lastMonth", label:"Last Month"},
+              ].map(p=>(
+                <button key={p.key} onClick={()=>setPreset(p.key as any)}
+                  className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 text-xs font-medium transition-colors">
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <button onClick={exportMonthCSV}
+              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-700/70 hover:bg-green-700 text-white text-sm font-semibold transition-colors">
+              <Download className="w-4 h-4"/>Export CSV
+            </button>
+          </div>
+
+          {!monthReport
+            ? <div className="flex items-center gap-2 text-gray-400 py-8"><Loader2 className="w-5 h-5 animate-spin"/>Loading report...</div>
+            : (
+            <div className="space-y-6">
+
+              {/* KPI cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  {label:"Total Orders",   val:monthReport.totalOrders,             color:"text-white"},
+                  {label:"Revenue",        val:formatPrice(monthReport.totalRevenue),color:"text-green-400"},
+                  {label:"Expenses",       val:formatPrice(totalMonthExp),           color:"text-red-400"},
+                  {label:netMonthProfit>=0?"Net Profit":"Net Loss",
+                   val:formatPrice(Math.abs(netMonthProfit)),
+                   color:netMonthProfit>=0?"text-green-400":"text-red-400"},
+                ].map(s=>(
+                  <div key={s.label} className="bg-white/5 border border-white/10 rounded-2xl p-5 text-center">
+                    <p className={`text-2xl font-extrabold ${s.color}`}>{s.val}</p>
+                    <p className="text-gray-400 text-xs mt-1">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Secondary stats */}
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                {[
+                  {label:"Cancelled",  val:monthReport.totalCancelled, color:"text-red-400"},
+                  {label:"Web Orders", val:monthReport.webOrders,       color:"text-blue-400"},
+                  {label:"Walk-ins",   val:monthReport.walkinOrders,    color:"text-purple-400"},
+                  {label:"Cash",       val:formatPrice(monthReport.cash),      color:"text-yellow-400"},
+                  {label:"Transfer",   val:formatPrice(monthReport.transfer),  color:"text-cyan-400"},
+                ].map(s=>(
+                  <div key={s.label} className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
+                    <p className={`text-lg font-bold ${s.color}`}>{s.val}</p>
+                    <p className="text-gray-500 text-xs mt-0.5">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* ── Revenue Bar Chart ── */}
+              {allDaysInRange.length > 0 && (
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+                  <h3 className="text-white font-bold mb-4 flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-green-400"/>
+                    Daily Revenue
+                  </h3>
+                  <div className="overflow-x-auto pb-2">
+                    <div className="flex items-end gap-1" style={{ minWidth: Math.max(allDaysInRange.length * 28, 300) }}>
+                      {allDaysInRange.map(day => {
+                        const d   = monthReport.days[day] ?? { revenue:0, orders:0, cancelled:0 };
+                        const pct = maxRevenue > 0 ? (d.revenue / maxRevenue) * 100 : 0;
+                        const label = new Date(day + "T12:00:00").toLocaleDateString("en-NG",{day:"numeric",month:"short"});
+                        return (
+                          <div key={day} className="flex flex-col items-center gap-1 flex-1" title={`${label}\n${formatPrice(d.revenue)}\n${d.orders} orders`}>
+                            <div className="w-full flex flex-col justify-end" style={{height:100}}>
+                              <div
+                                className={`w-full rounded-t-sm transition-all ${d.revenue>0?"bg-green-500":"bg-white/10"}`}
+                                style={{height:`${Math.max(pct,d.orders>0?3:0)}%`}}
+                              />
+                            </div>
+                            {allDaysInRange.length <= 31 && (
+                              <span className="text-gray-600 text-[9px] rotate-45 origin-left mt-1 w-6 truncate">
+                                {new Date(day + "T12:00:00").getDate()}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-green-500 inline-block"/>Revenue</span>
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-white/10 inline-block"/>No revenue</span>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Payment Method Split ── */}
+              {monthReport.totalRevenue > 0 && (
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+                  <h3 className="text-white font-bold mb-4">Payment Split</h3>
+                  <div className="space-y-3">
+                    {[
+                      {label:"💵 Cash",     amt:monthReport.cash,     color:"bg-yellow-400"},
+                      {label:"🏦 Transfer", amt:monthReport.transfer, color:"bg-cyan-400"},
+                      {label:"💳 Card/POS", amt:monthReport.card,     color:"bg-purple-400"},
+                    ].map(({label,amt,color})=>{
+                      const pct = monthReport.totalRevenue>0?(amt/monthReport.totalRevenue*100):0;
+                      return (
+                        <div key={label}>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="text-gray-300">{label}</span>
+                            <span className="text-white font-semibold">{formatPrice(amt)} <span className="text-gray-500 font-normal">({pct.toFixed(1)}%)</span></span>
+                          </div>
+                          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                            <div className={`h-full ${color} rounded-full transition-all`} style={{width:`${pct}%`}}/>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Top Products ── */}
+              {monthReport.topProducts.length > 0 && (
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+                  <h3 className="text-white font-bold mb-4">🏆 Top Products by Units Sold</h3>
+                  <div className="space-y-2">
+                    {monthReport.topProducts.map((p,i)=>{
+                      const maxQty = monthReport.topProducts[0]?.qty ?? 1;
+                      return (
+                        <div key={p.name} className="flex items-center gap-3">
+                          <span className="text-gray-500 font-mono text-xs w-4">#{i+1}</span>
+                          <span className="text-xl">{p.emoji}</span>
+                          <div className="flex-1">
+                            <div className="flex justify-between text-sm mb-0.5">
+                              <span className="text-white font-medium">{p.name}</span>
+                              <span className="text-gray-400">{p.qty} sold · <span className="text-green-400 font-semibold">{formatPrice(p.revenue)}</span></span>
+                            </div>
+                            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                              <div className="h-full bg-orange-400 rounded-full" style={{width:`${(p.qty/maxQty)*100}%`}}/>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Day-by-Day Table ── */}
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+                <h3 className="text-white font-bold mb-4">Day-by-Day Breakdown</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-white/10 text-gray-400 text-xs uppercase tracking-wide">
+                        <th className="text-left pb-2 pr-4">Date</th>
+                        <th className="text-right pb-2 pr-4">Orders</th>
+                        <th className="text-right pb-2 pr-4">Cancelled</th>
+                        <th className="text-right pb-2">Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {allDaysInRange.map(day=>{
+                        const d = monthReport.days[day] ?? {orders:0, revenue:0, cancelled:0};
+                        const hasData = d.orders>0 || d.cancelled>0;
+                        return (
+                          <tr key={day} className={`transition-colors ${hasData?"hover:bg-white/5":""}`}>
+                            <td className="py-2 pr-4">
+                              <span className="text-gray-300">
+                                {new Date(day+"T12:00:00").toLocaleDateString("en-NG",{weekday:"short",day:"numeric",month:"short"})}
+                              </span>
+                            </td>
+                            <td className="py-2 pr-4 text-right text-white font-medium">{d.orders||"—"}</td>
+                            <td className="py-2 pr-4 text-right">
+                              {d.cancelled>0 ? <span className="text-red-400">{d.cancelled}</span> : <span className="text-gray-700">—</span>}
+                            </td>
+                            <td className="py-2 text-right">
+                              {d.revenue>0 ? <span className="text-green-400 font-semibold">{formatPrice(d.revenue)}</span> : <span className="text-gray-700">—</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-white/20 font-bold">
+                        <td className="pt-3 text-white">Total</td>
+                        <td className="pt-3 text-right text-white">{monthReport.totalOrders}</td>
+                        <td className="pt-3 text-right text-red-400">{monthReport.totalCancelled||"—"}</td>
+                        <td className="pt-3 text-right text-green-400">{formatPrice(monthReport.totalRevenue)}</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={3} className="pt-1 text-gray-400 text-xs">Expenses (period)</td>
+                        <td className="pt-1 text-right text-red-400 text-xs font-semibold">{formatPrice(totalMonthExp)}</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={3} className="pt-0.5 text-gray-400 text-xs">{netMonthProfit>=0?"Net Profit":"Net Loss"}</td>
+                        <td className={`pt-0.5 text-right text-xs font-bold ${netMonthProfit>=0?"text-green-400":"text-red-400"}`}>{formatPrice(Math.abs(netMonthProfit))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              <p className="text-gray-500 text-xs text-center">
+                Range: {rangeFrom} → {rangeTo} · Generated {new Date().toLocaleString("en-NG")}
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>

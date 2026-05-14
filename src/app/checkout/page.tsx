@@ -59,8 +59,26 @@ export default function CheckoutPage() {
     } catch { /* silent */ }
   }, []);
   const [loading, setLoading] = useState(false);
+  const [orderPlaced, setOrderPlaced] = useState(false); // full-screen placing loader
+  const [placingStep, setPlacingStep] = useState(0); // animates through steps
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+
+  const PLACING_STEPS = [
+    "Sending your order...",
+    "Confirming your items...",
+    "Notifying the kitchen...",
+    "Almost done!",
+  ];
+
+  // cycle through placing steps for visual delight
+  useEffect(() => {
+    if (!orderPlaced) return;
+    const interval = setInterval(() => {
+      setPlacingStep((s) => (s + 1) % PLACING_STEPS.length);
+    }, 800);
+    return () => clearInterval(interval);
+  }, [orderPlaced]);
 
   // Receipt upload
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -109,6 +127,10 @@ export default function CheckoutPage() {
     if (items.length === 0) { setError("Your cart is empty."); return; }
     if (form.paymentMethod === "transfer" && !receiptFile) { setError("Please upload your transfer receipt screenshot."); return; }
     setError(""); setLoading(true);
+    // Show the full-screen placing loader immediately
+    setOrderPlaced(true);
+    setPlacingStep(0);
+    const startTime = Date.now();
 
     try {
       // Create order first (status: pending, paymentStatus: awaiting_confirmation)
@@ -170,8 +192,15 @@ export default function CheckoutPage() {
       }).catch(() => {});
 
       clearCart();
+
+      // Ensure at least 3s of loader before redirect
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, 3000 - elapsed);
+      await new Promise((res) => setTimeout(res, remaining));
+
       router.push(`/order/${orderId}`);
     } catch {
+      setOrderPlaced(false);
       setError("Something went wrong. Please try again.");
       setLoading(false);
     }
@@ -181,6 +210,32 @@ export default function CheckoutPage() {
     <main className="bg-[#081C15] min-h-screen">
       <Navbar />
       <CartDrawer />
+
+      {/* ── Full-screen Order Placing Overlay ─────── */}
+      {orderPlaced && (
+        <div className="fixed inset-0 z-[9999] bg-[#081C15] flex flex-col items-center justify-center gap-6">
+          <div className="relative flex items-center justify-center">
+            {/* Pulsing rings */}
+            <span className="absolute inline-flex w-28 h-28 rounded-full bg-orange-500/20 animate-ping" />
+            <span className="absolute inline-flex w-20 h-20 rounded-full bg-orange-500/30 animate-ping" style={{ animationDelay: '0.2s' }} />
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-orange-500 to-yellow-400 flex items-center justify-center shadow-2xl">
+              <span className="text-4xl">🍊</span>
+            </div>
+          </div>
+          <div className="text-center space-y-2">
+            <p className="text-white text-2xl font-extrabold">Placing Your Order</p>
+            <p className="text-orange-400 font-medium transition-all duration-500">{PLACING_STEPS[placingStep]}</p>
+          </div>
+          <div className="flex gap-1.5 mt-2">
+            {PLACING_STEPS.map((_, i) => (
+              <span key={i} className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                i === placingStep ? 'bg-orange-400 scale-125' : 'bg-white/20'
+              }`} />
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="pt-24 pb-16 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white">Checkout</h1>

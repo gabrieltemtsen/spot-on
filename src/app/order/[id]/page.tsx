@@ -8,9 +8,9 @@ import Navbar from "@/components/Navbar";
 import CartDrawer from "@/components/CartDrawer";
 import { useCart } from "@/store/cart";
 import { formatPrice } from "@/lib/menu";
-import { CheckCircle2, Clock, ChefHat, PackageCheck, Bike, XCircle, Loader2, RotateCcw, Banknote, AlertCircle, Phone, Star } from "lucide-react";
+import { CheckCircle2, Clock, ChefHat, PackageCheck, Bike, XCircle, Loader2, RotateCcw, Banknote, AlertCircle, Phone, Star, ListOrdered, ChevronDown } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const STEPS = [
   { key: "pending",   label: "Order Received",  icon: Clock,        desc: "We got your order!" },
@@ -33,6 +33,17 @@ export default function OrderPage() {
   const [hoverRating, setHoverRating] = useState(0);
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [showOtherOrders, setShowOtherOrders] = useState(false);
+  const [otherOrders, setOtherOrders] = useState<{ id: string; orderNumber: string; placedAt: number }[]>([]);
+
+  // Load other orders from localStorage (excluding this one)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("spoton_orders");
+      const all = raw ? JSON.parse(raw) : [];
+      setOtherOrders(all.filter((o: any) => o.id !== id));
+    } catch { /* silent */ }
+  }, [id]);
 
   const isCancelled = order?.status === "cancelled";
   const currentStep = order ? STEPS.findIndex((s) => s.key === order.status) : -1;
@@ -299,6 +310,77 @@ export default function OrderPage() {
           </div>
         )}
       </div>
+
+      {/* ── Multi-Order Tracking Floater ─────────────────────────── */}
+      {otherOrders.length > 0 && (
+        <>
+          {/* Backdrop */}
+          {showOtherOrders && (
+            <div
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+              onClick={() => setShowOtherOrders(false)}
+            />
+          )}
+
+          {/* Slide-up panel */}
+          <div
+            className={`fixed bottom-0 left-0 right-0 z-50 transition-transform duration-300 ease-in-out ${
+              showOtherOrders ? 'translate-y-0' : 'translate-y-full'
+            }`}
+          >
+            <div className="bg-[#0d1f17] border-t border-white/10 rounded-t-3xl p-5 max-h-[70vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <ListOrdered className="w-5 h-5 text-green-400" />
+                  <h3 className="text-white font-bold">Your Other Orders</h3>
+                  <span className="px-2 py-0.5 rounded-full bg-orange-500 text-white text-xs font-bold">{otherOrders.length}</span>
+                </div>
+                <button
+                  onClick={() => setShowOtherOrders(false)}
+                  className="p-2 rounded-full hover:bg-white/10 transition-colors"
+                >
+                  <ChevronDown className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
+              <div className="space-y-3">
+                {otherOrders.map((o) => (
+                  <Link
+                    key={o.id}
+                    href={`/order/${o.id}`}
+                    onClick={() => setShowOtherOrders(false)}
+                    className="flex items-center justify-between bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 rounded-xl p-4 transition-all group"
+                  >
+                    <div>
+                      <p className="text-white font-mono font-bold text-sm">{o.orderNumber}</p>
+                      <p className="text-gray-400 text-xs mt-0.5">
+                        {new Date(o.placedAt).toLocaleString("en-NG", { dateStyle: "short", timeStyle: "short" })}
+                      </p>
+                    </div>
+                    <span className="text-orange-400 text-sm font-semibold group-hover:translate-x-1 transition-transform">Track →</span>
+                  </Link>
+                ))}
+              </div>
+              <Link
+                href="/my-orders"
+                className="mt-4 flex items-center justify-center gap-2 w-full py-3 rounded-xl border border-white/20 hover:border-white/40 text-gray-400 hover:text-white text-sm font-medium transition-colors"
+              >
+                View all in My Orders
+              </Link>
+            </div>
+          </div>
+
+          {/* Floating trigger button */}
+          {!showOtherOrders && (
+            <button
+              onClick={() => setShowOtherOrders(true)}
+              className="fixed bottom-6 right-4 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-green-700 hover:bg-green-600 text-white font-bold shadow-2xl transition-all active:scale-95"
+            >
+              <ListOrdered className="w-4 h-4" />
+              {otherOrders.length} more order{otherOrders.length > 1 ? 's' : ''}
+            </button>
+          )}
+        </>
+      )}
     </main>
   );
 }

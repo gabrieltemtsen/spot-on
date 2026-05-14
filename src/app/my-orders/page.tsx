@@ -7,8 +7,10 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import Navbar from "@/components/Navbar";
 import CartDrawer from "@/components/CartDrawer";
 import { formatPrice } from "@/lib/menu";
-import { Clock, CheckCircle2, ChefHat, PackageCheck, Bike, XCircle, Truck, Loader2, ShoppingBag } from "lucide-react";
+import { Clock, CheckCircle2, ChefHat, PackageCheck, Bike, XCircle, Truck, Loader2, ShoppingBag, RotateCcw } from "lucide-react";
 import Link from "next/link";
+import { useCart } from "@/store/cart";
+import { useRouter } from "next/navigation";
 
 type StoredOrder = { id: string; orderNumber: string; customerName: string; placedAt: number };
 
@@ -24,6 +26,11 @@ const STATUS_CFG = {
 
 function OrderCard({ stored }: { stored: StoredOrder }) {
   const order = useQuery(api.orders.get, { id: stored.id as Id<"orders"> });
+  const allProducts = useQuery(api.products.list, {});
+  const { clearCart, addItem, openCart } = useCart();
+  const router = useRouter();
+  const [reordering, setReordering] = useState(false);
+
   if (order === undefined) return (
     <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center gap-3 text-gray-500">
       <Loader2 className="w-4 h-4 animate-spin" /> Loading...
@@ -35,44 +42,85 @@ function OrderCard({ stored }: { stored: StoredOrder }) {
   const Icon = cfg.icon;
   const total = (order.subtotal ?? 0) + (order.deliveryFee ?? 0);
 
+  function handleReorder(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setReordering(true);
+    clearCart();
+    order.items.forEach((orderItem: any) => {
+      const product = allProducts?.find((p: any) => p._id === orderItem.productId);
+      addItem({
+        id: orderItem.productId,
+        name: orderItem.name,
+        category: product?.category ?? "juice",
+        description: product?.description ?? "",
+        ingredients: product?.ingredients ?? [],
+        price: product?.price ?? orderItem.price,
+        emoji: orderItem.emoji,
+        gradient: product?.gradient ?? "from-orange-400 to-yellow-300",
+        badge: product?.badge,
+        imageUrl: product?.imageUrl ?? null,
+      });
+    });
+    setTimeout(() => {
+      setReordering(false);
+      openCart();
+    }, 300);
+  }
+
   return (
-    <Link href={`/order/${stored.id}`} className="block bg-white/5 border border-white/10 hover:border-white/20 rounded-2xl p-5 transition-all hover:bg-white/8 group">
-      <div className="flex items-start justify-between gap-4 mb-3">
-        <div>
-          <p className="text-white font-bold font-mono">{order.orderNumber}</p>
-          <p className="text-gray-400 text-xs mt-0.5">{new Date(order.createdAt).toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" })}</p>
-        </div>
-        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${cfg.color}`}>
-          <Icon className="w-3 h-3" /> {cfg.label}
-        </span>
-      </div>
-
-      <div className="space-y-1 mb-3">
-        {order.items.slice(0, 3).map((item, i) => (
-          <p key={i} className="text-gray-300 text-sm">{item.emoji} {item.name} ×{item.quantity}</p>
-        ))}
-        {order.items.length > 3 && <p className="text-gray-500 text-xs">+{order.items.length - 3} more</p>}
-      </div>
-
-      <div className="flex items-center justify-between pt-3 border-t border-white/10">
-        <div className="flex items-center gap-2">
-          <span className={`text-xs px-2 py-0.5 rounded-full border ${
-            order.paymentMethod === "transfer" && order.paymentStatus === "awaiting_confirmation"
-              ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
-              : order.paymentMethod === "transfer" && order.paymentStatus === "confirmed"
-              ? "bg-green-500/20 text-green-400 border-green-500/30"
-              : "bg-gray-700 text-gray-400 border-gray-600"
-          }`}>
-            {order.paymentMethod === "transfer" && order.paymentStatus === "awaiting_confirmation"
-              ? "⏳ Payment pending"
-              : order.paymentMethod === "transfer" && order.paymentStatus === "confirmed"
-              ? "✅ Paid"
-              : order.paymentMethod ?? "pending"}
+    <div className="relative group">
+      <Link href={`/order/${stored.id}`} className="block bg-white/5 border border-white/10 hover:border-white/20 rounded-2xl p-5 transition-all hover:bg-white/8">
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div>
+            <p className="text-white font-bold font-mono">{order.orderNumber}</p>
+            <p className="text-gray-400 text-xs mt-0.5">{new Date(order.createdAt).toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" })}</p>
+          </div>
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${cfg.color}`}>
+            <Icon className="w-3 h-3" /> {cfg.label}
           </span>
         </div>
-        <p className="text-green-400 font-bold">{formatPrice(total)}</p>
-      </div>
-    </Link>
+
+        <div className="space-y-1 mb-3">
+          {order.items.slice(0, 3).map((item, i) => (
+            <p key={i} className="text-gray-300 text-sm">{item.emoji} {item.name} ×{item.quantity}</p>
+          ))}
+          {order.items.length > 3 && <p className="text-gray-500 text-xs">+{order.items.length - 3} more</p>}
+        </div>
+
+        <div className="flex items-center justify-between pt-3 border-t border-white/10">
+          <div className="flex items-center gap-2">
+            <span className={`text-xs px-2 py-0.5 rounded-full border ${
+              order.paymentMethod === "transfer" && order.paymentStatus === "awaiting_confirmation"
+                ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                : order.paymentMethod === "transfer" && order.paymentStatus === "confirmed"
+                ? "bg-green-500/20 text-green-400 border-green-500/30"
+                : "bg-gray-700 text-gray-400 border-gray-600"
+            }`}>
+              {order.paymentMethod === "transfer" && order.paymentStatus === "awaiting_confirmation"
+                ? "⏳ Payment pending"
+                : order.paymentMethod === "transfer" && order.paymentStatus === "confirmed"
+                ? "✅ Paid"
+                : order.paymentMethod ?? "pending"}
+            </span>
+          </div>
+          <p className="text-green-400 font-bold">{formatPrice(total)}</p>
+        </div>
+      </Link>
+
+      {/* Re-order button — overlaid on the card bottom-right */}
+      {order.status !== "cancelled" && (
+        <button
+          onClick={handleReorder}
+          disabled={reordering || !allProducts}
+          className="absolute bottom-5 right-5 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-orange-500 hover:bg-orange-400 disabled:opacity-60 text-white text-xs font-bold transition-all active:scale-95 shadow-lg z-10"
+          title="Re-order the same items"
+        >
+          {reordering ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+          Re-order
+        </button>
+      )}
+    </div>
   );
 }
 
